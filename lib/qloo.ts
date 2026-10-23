@@ -66,12 +66,16 @@ export async function insights(opts: {
   signalEntities?: string[];
   location?: string;
   explainability?: boolean;
+  popularityMin?: number; // 0..1 — floor out total unknowns
+  popularityMax?: number; // 0..1 — ceiling out already-famous acts (the "undercard" knob)
   take?: number;
 }): Promise<{ results?: { entities?: QlooEntity[]; demographics?: unknown[] }; query?: unknown }> {
   return qloo("/v2/insights", {
     "filter.type": opts.filterType,
     "signal.interests.entities": opts.signalEntities?.join(","),
     "filter.location.query": opts.location,
+    "filter.popularity.min": opts.popularityMin,
+    "filter.popularity.max": opts.popularityMax,
     "feature.explainability": opts.explainability ? "true" : undefined,
     take: opts.take ?? 10,
   });

@@ -10,12 +10,14 @@ export async function GET(req: NextRequest) {
     .map((s) => s.trim())
     .filter(Boolean);
   const city = sp.get("city") ?? undefined;
+  const num = (k: string) => (sp.get(k) != null ? Number(sp.get(k)) : undefined);
+  const band = { min: num("minPop"), max: num("maxPop") };
 
   if (!headliners.length) {
-    return NextResponse.json({ error: "pass ?h=Name (repeatable) or ?headliners=a|b|c (optional &city=...)" }, { status: 400 });
+    return NextResponse.json({ error: "pass ?h=Name (repeatable) or ?headliners=a|b|c (optional &city=... &minPop= &maxPop=)" }, { status: 400 });
   }
   try {
-    return NextResponse.json(await buildLineup(headliners, city));
+    return NextResponse.json(await buildLineup(headliners, city, band));
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

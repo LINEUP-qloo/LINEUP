@@ -19,12 +19,19 @@ export type LineupResult = {
   unresolved: string[]; // names Qloo couldn't match
 };
 
-// affinity>=0.9 & not already famous → a booking the crowd will love but you wouldn't guess.
-// ponytail: thresholds are tunable knobs, not law — adjust once we see real distributions.
-const GEM_AFFINITY = 0.9;
-const GEM_POPULARITY = 0.6;
+// The undercard band: Qloo's most-affine neighbors of famous headliners are themselves
+// famous (pop ~1.0) — useless as bookings. Capping popularity surfaces high-affinity acts
+// the crowd will love but that you'd never think to book. This band IS the product.
+// ponytail: band + gem threshold are tunable knobs — the demo can dial "how obscure".
+const DEFAULT_POP_MIN = 0.2; // floor out noise / non-bookable unknowns
+const DEFAULT_POP_MAX = 0.8; // ceiling out the already-famous
+const GEM_POPULARITY = 0.45; // below this = a genuine deep-cut discovery
 
-export async function buildLineup(names: string[], city?: string): Promise<LineupResult> {
+export async function buildLineup(
+  names: string[],
+  city?: string,
+  band: { min?: number; max?: number } = {},
+): Promise<LineupResult> {
   const resolved = await Promise.all(names.map((n) => search(n)));
   const headliners = resolved.filter((r): r is QlooEntity => !!r);
   const unresolved = names.filter((_, i) => !resolved[i]);
@@ -37,12 +44,15 @@ export async function buildLineup(names: string[], city?: string): Promise<Lineu
     filterType: "urn:entity:artist",
     signalEntities: headliners.map((h) => h.entity_id),
     explainability: true,
-    take: 20,
+    popularityMin: band.min ?? DEFAULT_POP_MIN,
+    popularityMax: band.max ?? DEFAULT_POP_MAX,
+    take: 25,
   });
   const ents = data.results?.entities ?? [];
 
   const lineup: Pick[] = ents
-    .filter((e) => !headlinerIds.has(e.entity_id)) // don't recommend the headliners back
+    // drop the headliners themselves + junk entries (names with no letters/digits)
+    .filter((e) => !headlinerIds.has(e.entity_id) && /[a-z0-9]/i.test(e.name ?? ""))
     .map((e) => {
       const affinity = e.query?.affinity ?? 0;
       const popularity = e.popularity ?? 0;
@@ -53,7 +63,7 @@ export async function buildLineup(names: string[], city?: string): Promise<Lineu
         affinity,
         popularity,
         gemScore: affinity * (1 - popularity),
-        isHiddenGem: affinity >= GEM_AFFINITY && popularity <= GEM_POPULARITY,
+        isHiddenGem: popularity <= GEM_POPULARITY,
         image: e.properties?.image?.url,
         genres: (e.tags ?? []).filter((t) => t.type?.includes("genre")).map((t) => t.name).slice(0, 3),
         drivenBy: attr.map((a) => ({ name: idToName.get(a.entity_id) ?? a.entity_id, score: a.score })),
