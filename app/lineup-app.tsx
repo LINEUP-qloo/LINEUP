@@ -35,6 +35,8 @@ export default function LineupApp() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<LineupResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [brief, setBrief] = useState<string | null>(null);
+  const [briefLoading, setBriefLoading] = useState(false);
 
   const hueFor = useMemo(() => {
     const m = new Map<string, string>();
@@ -60,6 +62,7 @@ export default function LineupApp() {
     if (!hs.length) return;
     setLoading(true);
     setError(null);
+    setBrief(null);
     try {
       const params = new URLSearchParams();
       hs.forEach((h) => params.append("h", h));
@@ -68,11 +71,29 @@ export default function LineupApp() {
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
       setResult(data as LineupResult);
+      fetchBrief(data as LineupResult);
     } catch (e) {
       setError((e as Error).message);
       setResult(null);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchBrief(r: LineupResult) {
+    setBriefLoading(true);
+    try {
+      const res = await fetch("/api/brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(r),
+      });
+      const j = await res.json();
+      setBrief(j.brief ?? null);
+    } catch {
+      setBrief(null);
+    } finally {
+      setBriefLoading(false);
     }
   }
 
@@ -173,7 +194,7 @@ export default function LineupApp() {
       {loading && !result && <LoadingTrace />}
 
       {result && (
-        <Results result={result} hueFor={hueFor} loading={loading} />
+        <Results result={result} hueFor={hueFor} loading={loading} brief={brief} briefLoading={briefLoading} />
       )}
 
       {!result && !loading && !error && (
@@ -191,10 +212,14 @@ function Results({
   result,
   hueFor,
   loading,
+  brief,
+  briefLoading,
 }: {
   result: LineupResult;
   hueFor: (n: string) => string;
   loading: boolean;
+  brief: string | null;
+  briefLoading: boolean;
 }) {
   const { lineup, sponsors, places, audience, headliners, unresolved, trace, city } = result;
   return (
@@ -212,6 +237,8 @@ function Results({
       {unresolved.length > 0 && (
         <p className="mt-1 font-mono text-[11px] text-ember/80">couldn’t resolve: {unresolved.join(", ")}</p>
       )}
+
+      <BriefPanel brief={brief} loading={briefLoading} />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         {/* hero: the lineup */}
@@ -253,6 +280,22 @@ function Results({
           </ol>
         </section>
       </div>
+    </div>
+  );
+}
+
+function BriefPanel({ brief, loading }: { brief: string | null; loading: boolean }) {
+  if (!brief && !loading) return null;
+  return (
+    <div className="anim-rise mt-5 border-l-2 border-volt bg-ink-2/60 py-3 pl-4 pr-4">
+      <div className="font-mono text-[10px] uppercase tracking-widest text-volt">
+        Programmer’s Brief <span className="text-ash">· generated from the taste data</span>
+      </div>
+      {loading && !brief ? (
+        <p className="mt-2 font-mono text-sm text-ash cursor-blink">drafting the bill</p>
+      ) : (
+        <p className="mt-2 max-w-3xl text-[15px] leading-relaxed text-bone">{brief}</p>
+      )}
     </div>
   );
 }
