@@ -1,6 +1,9 @@
 import { search, insights, type QlooEntity } from "./qloo";
 
 type Attr = { name: string; score: number };
+type Lane = { results?: { entities?: QlooEntity[]; demographics?: unknown[] } };
+
+export type TraceStep = { step: string; label: string; ms: number; count: number };
 
 export type Pick = {
   id: string;
@@ -39,6 +42,7 @@ export type AudienceRead = {
 };
 
 export type LineupResult = {
+  trace: TraceStep[];
   headliners: { id: string; name: string; popularity: number }[];
   city?: string;
   lineup: Pick[];
@@ -74,22 +78,33 @@ export async function buildLineup(
   city?: string,
   band: { min?: number; max?: number } = {},
 ): Promise<LineupResult> {
+  const trace: TraceStep[] = [];
+  const t0 = Date.now();
   const resolved = await Promise.all(names.map((n) => search(n)));
   const headliners = resolved.filter((r): r is QlooEntity => !!r);
   const unresolved = names.filter((_, i) => !resolved[i]);
-  const empty: LineupResult = { headliners: [], city, lineup: [], sponsors: [], places: [], audience: null, unresolved };
-  if (!headliners.length) return empty;
+  trace.push({ step: "search", label: `Resolve headliners · /search`, ms: Date.now() - t0, count: headliners.length });
+
+  if (!headliners.length)
+    return { trace, city, unresolved, headliners: [], lineup: [], sponsors: [], places: [], audience: null };
 
   const idToName = new Map(headliners.map((h) => [h.entity_id, h.name]));
   const headlinerIds = new Set(headliners.map((h) => h.entity_id));
   const signal = headliners.map((h) => h.entity_id);
 
-  // Four lanes in parallel (concurrency-capped + 429-backoff inside the client).
+  // Time each lane individually even though they run concurrently.
+  const timed = async (step: string, label: string, run: Promise<Lane>): Promise<Lane> => {
+    const t = Date.now();
+    const d = await run;
+    trace.push({ step, label, ms: Date.now() - t, count: (d.results?.entities ?? d.results?.demographics ?? []).length });
+    return d;
+  };
+
   const [artistData, brandData, placeData, demoData] = await Promise.all([
-    insights({ filterType: "urn:entity:artist", signalEntities: signal, explainability: true, popularityMin: band.min ?? DEFAULT_POP_MIN, popularityMax: band.max ?? DEFAULT_POP_MAX, take: 25 }),
-    insights({ filterType: "urn:entity:brand", signalEntities: signal, explainability: true, take: 10 }),
-    city ? insights({ filterType: "urn:entity:place", signalEntities: signal, location: city, popularityMax: PLACE_POP_MAX, take: 10 }) : Promise.resolve({}),
-    insights({ filterType: "urn:demographics", signalEntities: signal }),
+    timed("artist", "Support acts · insights(artist, pop-band)", insights({ filterType: "urn:entity:artist", signalEntities: signal, explainability: true, popularityMin: band.min ?? DEFAULT_POP_MIN, popularityMax: band.max ?? DEFAULT_POP_MAX, take: 25 })),
+    timed("brand", "Sponsor fit · insights(brand)", insights({ filterType: "urn:entity:brand", signalEntities: signal, explainability: true, take: 10 })),
+    timed("place", city ? `Local partners · insights(place, ${city})` : "Local partners · skipped (no city)", city ? insights({ filterType: "urn:entity:place", signalEntities: signal, location: city, popularityMax: PLACE_POP_MAX, take: 10 }) : Promise.resolve<Lane>({ results: { entities: [] } })),
+    timed("demographics", "Audience read · insights(demographics)", insights({ filterType: "urn:demographics", signalEntities: signal })),
   ]);
 
   const lineup: Pick[] = (artistData.results?.entities ?? [])
@@ -125,7 +140,7 @@ export async function buildLineup(
     .sort((a, b) => b.affinity - a.affinity)
     .slice(0, 8);
 
-  const places: Place[] = ((placeData as typeof artistData).results?.entities ?? [])
+  const places: Place[] = (placeData.results?.entities ?? [])
     .filter(named)
     .map((e) => {
       const p = e.properties as { address?: string; good_for?: unknown[] } | undefined;
@@ -146,6 +161,7 @@ export async function buildLineup(
     .slice(0, 8);
 
   return {
+    trace,
     headliners: headliners.map((h) => ({ id: h.entity_id, name: h.name, popularity: h.popularity ?? 0 })),
     city,
     lineup,
