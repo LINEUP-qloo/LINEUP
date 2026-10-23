@@ -131,3 +131,24 @@ body::before {
     animation: none !important;
   }
 }
+
+/* ——— print / Save-as-PDF: a clean bill sheet, drop the working UI ——— */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body::before {
+    display: none;
+  }
+  html,
+  body {
+    background: var(--color-ink) !important;
+  }
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .anim-rise {
+    animation: none !important;
+  }
+}

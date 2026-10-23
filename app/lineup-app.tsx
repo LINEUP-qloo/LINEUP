@@ -31,6 +31,54 @@ const TIER_SIZE = ["text-2xl md:text-3xl", "text-lg md:text-xl", "text-sm md:tex
 const firstName = (n: string) => n.split(/[ ,]/)[0];
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
+// Plain-text bill sheet — the thing a booker pastes into an email to an agent/partner.
+function buildSheet(r: LineupResult, bill: Record<string, number>, brief: string | null): string {
+  const L: string[] = [];
+  L.push(`LINEUP${r.city ? ` — ${r.city}` : ""}`);
+  L.push(`Headliners: ${r.headliners.map((h) => h.name).join(" · ")}`);
+  L.push("", "THE BILL");
+  TIERS.forEach((tier, ti) => {
+    const acts = r.lineup.filter((p) => bill[p.id] === ti).map((p) => p.name);
+    if (acts.length) L.push(`  ${tier}: ${acts.join(", ")}`);
+  });
+  if (!Object.keys(bill).length) L.push("  (no support acts added yet)");
+  if (brief) L.push("", "PROGRAMMER'S BRIEF", `  ${brief}`);
+  if (r.sponsors.length)
+    L.push("", "SPONSOR FIT", `  ${r.sponsors.slice(0, 6).map((s) => `${s.name} (${s.affinity.toFixed(2)})`).join(", ")}`);
+  if (r.places.length) {
+    L.push("", `LOCAL PARTNERS${r.city ? ` — ${r.city}` : ""}`);
+    r.places.slice(0, 6).forEach((p) => L.push(`  ${p.name}${p.address ? ` — ${p.address}` : ""}`));
+  }
+  if (r.audience) {
+    const a = r.audience;
+    L.push("", "AUDIENCE (over / under-index vs baseline)");
+    L.push(`  age: ${a.age.map((x) => `${AGE_LABEL[x.bracket] ?? x.bracket} ${x.score >= 0 ? "+" : ""}${x.score.toFixed(2)}`).join(", ")}`);
+    L.push(`  gender: male ${a.gender.male >= 0 ? "+" : ""}${a.gender.male.toFixed(2)}, female ${a.gender.female >= 0 ? "+" : ""}${a.gender.female.toFixed(2)}`);
+  }
+  L.push("", "Programmed with LINEUP · powered by the Qloo taste graph");
+  return L.join("\n");
+}
+
+function ExportBar({ result, bill, brief }: { result: LineupResult; bill: Record<string, number>; brief: string | null }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(buildSheet(result, bill, brief));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* clipboard blocked — print still works */
+    }
+  };
+  const btn = "border border-line px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-ash transition-colors hover:border-volt hover:text-volt";
+  return (
+    <div className="no-print flex shrink-0 items-center gap-2">
+      <button onClick={copy} className={btn}>{copied ? "✓ copied" : "⧉ copy sheet"}</button>
+      <button onClick={() => window.print()} className={btn}>⎙ print / pdf</button>
+    </div>
+  );
+}
+
 export default function LineupApp() {
   const [headliners, setHeadliners] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
@@ -138,7 +186,7 @@ export default function LineupApp() {
       </header>
 
       {/* input console */}
-      <section className="mt-6 border border-line bg-ink-2/60 p-4 md:p-5">
+      <section className="no-print mt-6 border border-line bg-ink-2/60 p-4 md:p-5">
         <div className="grid gap-4 md:grid-cols-[1fr_auto]">
           <div>
             <label className="font-mono text-[10px] uppercase tracking-widest text-ash">Headliners</label>
@@ -256,7 +304,7 @@ function Results({
   return (
     <div className={loading ? "pointer-events-none opacity-50" : ""}>
       {/* the bill */}
-      <div className="mt-8 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+      <div className="no-print mt-8 flex flex-wrap items-baseline gap-x-4 gap-y-1">
         <span className="font-mono text-[10px] uppercase tracking-widest text-ash">Billing</span>
         {headliners.map((h, i) => (
           <span key={h.id} className="font-display text-2xl font-bold" style={{ color: HUES[i % HUES.length] }}>
@@ -271,11 +319,11 @@ function Results({
 
       <BriefPanel brief={brief} loading={briefLoading} />
 
-      <BillPoster result={result} bill={bill} moveTier={moveTier} toggleBill={toggleBill} />
+      <BillPoster result={result} bill={bill} moveTier={moveTier} toggleBill={toggleBill} brief={brief} />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         {/* hero: the lineup */}
-        <section className="lg:col-span-2">
+        <section className="no-print lg:col-span-2">
           <SectionLabel n="01" title="The Undercard" hint="high taste-fit · bookable · not already famous" />
           <ol className="mt-3 divide-y divide-line border-y border-line">
             {lineup.map((p, i) => (
@@ -402,17 +450,22 @@ function BillPoster({
   bill,
   moveTier,
   toggleBill,
+  brief,
 }: {
   result: LineupResult;
   bill: Record<string, number>;
   moveTier: (id: string, dir: -1 | 1) => void;
   toggleBill: (id: string) => void;
+  brief: string | null;
 }) {
   const count = Object.keys(bill).length;
   const byTier = TIERS.map((_, ti) => result.lineup.filter((p) => bill[p.id] === ti));
   return (
     <section className="mt-6 border border-line bg-ink-2/60 p-5">
-      <SectionLabel n="00" title="The Bill" hint={count ? `${count} act${count > 1 ? "s" : ""} added · the bill you’re programming` : "add acts from the undercard below"} />
+      <div className="flex items-start justify-between gap-3">
+        <SectionLabel n="00" title="The Bill" hint={count ? `${count} act${count > 1 ? "s" : ""} added · the bill you’re programming` : "add acts from the undercard below"} />
+        <ExportBar result={result} bill={bill} brief={brief} />
+      </div>
       <div className="mt-5 space-y-4 text-center">
         <div className="flex flex-wrap items-baseline justify-center gap-x-6 gap-y-1">
           {result.headliners.map((h, i) => (
@@ -429,7 +482,7 @@ function BillPoster({
                 {byTier[ti].map((p) => (
                   <span key={p.id} className={`group inline-flex items-center gap-1.5 font-display font-bold text-bone ${TIER_SIZE[ti]}`}>
                     {p.name}
-                    <span className="inline-flex items-center gap-0.5 opacity-40 transition-opacity group-hover:opacity-100">
+                    <span className="no-print inline-flex items-center gap-0.5 opacity-40 transition-opacity group-hover:opacity-100">
                       <button onClick={() => moveTier(p.id, -1)} disabled={ti === 0} className="font-mono text-[11px] text-ash hover:text-volt disabled:opacity-20" aria-label="move up a tier">▲</button>
                       <button onClick={() => moveTier(p.id, 1)} disabled={ti === TIERS.length - 1} className="font-mono text-[11px] text-ash hover:text-volt disabled:opacity-20" aria-label="move down a tier">▼</button>
                       <button onClick={() => toggleBill(p.id)} className="font-mono text-[11px] text-ash hover:text-ember" aria-label="remove from bill">✕</button>
@@ -442,7 +495,7 @@ function BillPoster({
         )}
       </div>
       {!count && (
-        <p className="mt-4 text-center font-mono text-sm text-ash">
+        <p className="no-print mt-4 text-center font-mono text-sm text-ash">
           Hit <span className="text-volt">+ add</span> on undercard picks to build your bill — then promote them with ▲▼.
         </p>
       )}
@@ -547,7 +600,7 @@ function DivergingBar({ label, score }: { label: string; score: number }) {
 function TracePanel({ trace }: { trace: LineupResult["trace"] }) {
   const totalMs = trace.reduce((s, t) => s + t.ms, 0);
   return (
-    <div className="anim-rise border border-line bg-ink-2/60 p-4">
+    <div className="no-print anim-rise border border-line bg-ink-2/60 p-4">
       <SectionLabel n="⦿" title="Qloo trace" hint={`${totalMs}ms`} />
       <ul className="mt-3 space-y-1.5 font-mono text-[11px]">
         {trace.map((t, i) => (
