@@ -44,10 +44,11 @@ export type AudienceRead = {
 export type LineupResult = {
   trace: TraceStep[];
   headliners: { id: string; name: string; popularity: number }[];
-  city?: string;
+  city?: string; // primary city (first stop) — for narrate/export back-compat
   lineup: Pick[];
   sponsors: Sponsor[];
-  places: Place[];
+  places: Place[]; // primary city's partners
+  tour: { city: string; places: Place[] }[]; // one entry per tour stop (only the venue lane varies by city)
   audience: AudienceRead | null;
   unresolved: string[]; // names Qloo couldn't match
 };
@@ -73,11 +74,26 @@ const imageOf = (e: QlooEntity): string | undefined => {
   return p?.image?.url ?? p?.images?.[0]?.url;
 };
 
+const toPlaces = (data: Lane): Place[] =>
+  (data.results?.entities ?? [])
+    .filter(named)
+    .map((e) => {
+      const p = e.properties as { address?: string; good_for?: unknown[] } | undefined;
+      const goodFor = Array.isArray(p?.good_for)
+        ? p!.good_for.map((x) => (typeof x === "string" ? x : (x as { name?: string })?.name)).filter((s): s is string => !!s).slice(0, 4)
+        : [];
+      return { id: e.entity_id, name: e.name, affinity: e.query?.affinity ?? 0, popularity: e.popularity ?? 0, address: p?.address, goodFor, image: imageOf(e) };
+    })
+    .sort((a, b) => b.affinity - a.affinity)
+    .slice(0, 8);
+
 export async function buildLineup(
   names: string[],
-  city?: string,
+  cities: string[] = [],
   band: { min?: number; max?: number } = {},
 ): Promise<LineupResult> {
+  const cityList = cities.map((c) => c.trim()).filter(Boolean);
+  const city = cityList[0];
   const trace: TraceStep[] = [];
   const t0 = Date.now();
   const resolved = await Promise.all(names.map((n) => search(n)));
@@ -86,7 +102,7 @@ export async function buildLineup(
   trace.push({ step: "search", label: `Resolve headliners · /search`, ms: Date.now() - t0, count: headliners.length });
 
   if (!headliners.length)
-    return { trace, city, unresolved, headliners: [], lineup: [], sponsors: [], places: [], audience: null };
+    return { trace, city, unresolved, headliners: [], lineup: [], sponsors: [], places: [], tour: [], audience: null };
 
   const idToName = new Map(headliners.map((h) => [h.entity_id, h.name]));
   const headlinerIds = new Set(headliners.map((h) => h.entity_id));
@@ -100,11 +116,17 @@ export async function buildLineup(
     return d;
   };
 
-  const [artistData, brandData, placeData, demoData] = await Promise.all([
+  // The venue lane is the ONLY thing that varies by city — artist/brand/demographic affinity is
+  // global in Qloo (verified). So run one place lane per tour stop; everything else once.
+  const placeLanes = cityList.length
+    ? cityList.map((c) => timed("place", `Local partners · insights(place, ${c})`, insights({ filterType: "urn:entity:place", signalEntities: signal, location: c, popularityMax: PLACE_POP_MAX, take: 10 })))
+    : [timed("place", "Local partners · skipped (no city)", Promise.resolve<Lane>({ results: { entities: [] } }))];
+
+  const [artistData, brandData, demoData, ...placeDatas] = await Promise.all([
     timed("artist", "Support acts · insights(artist, pop-band)", insights({ filterType: "urn:entity:artist", signalEntities: signal, explainability: true, popularityMin: band.min ?? DEFAULT_POP_MIN, popularityMax: band.max ?? DEFAULT_POP_MAX, take: 25 })),
     timed("brand", "Sponsor fit · insights(brand)", insights({ filterType: "urn:entity:brand", signalEntities: signal, explainability: true, take: 10 })),
-    timed("place", city ? `Local partners · insights(place, ${city})` : "Local partners · skipped (no city)", city ? insights({ filterType: "urn:entity:place", signalEntities: signal, location: city, popularityMax: PLACE_POP_MAX, take: 10 }) : Promise.resolve<Lane>({ results: { entities: [] } })),
     timed("demographics", "Audience read · insights(demographics)", insights({ filterType: "urn:demographics", signalEntities: signal })),
+    ...placeLanes,
   ]);
 
   const lineup: Pick[] = (artistData.results?.entities ?? [])
@@ -140,25 +162,8 @@ export async function buildLineup(
     .sort((a, b) => b.affinity - a.affinity)
     .slice(0, 8);
 
-  const places: Place[] = (placeData.results?.entities ?? [])
-    .filter(named)
-    .map((e) => {
-      const p = e.properties as { address?: string; good_for?: unknown[] } | undefined;
-      const goodFor = Array.isArray(p?.good_for)
-        ? p!.good_for.map((x) => (typeof x === "string" ? x : (x as { name?: string })?.name)).filter((s): s is string => !!s).slice(0, 4)
-        : [];
-      return {
-        id: e.entity_id,
-        name: e.name,
-        affinity: e.query?.affinity ?? 0,
-        popularity: e.popularity ?? 0,
-        address: p?.address,
-        goodFor,
-        image: imageOf(e),
-      };
-    })
-    .sort((a, b) => b.affinity - a.affinity)
-    .slice(0, 8);
+  const tour = cityList.map((c, i) => ({ city: c, places: toPlaces(placeDatas[i]) }));
+  const places = tour[0]?.places ?? [];
 
   return {
     trace,
@@ -167,6 +172,7 @@ export async function buildLineup(
     lineup,
     sponsors,
     places,
+    tour,
     audience: averageDemographics(demoData.results?.demographics),
     unresolved,
   };

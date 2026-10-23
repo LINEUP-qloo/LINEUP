@@ -5,9 +5,10 @@ import type { LineupResult, Pick, Place, Sponsor } from "@/lib/lineup";
 
 const HUES = ["#ccff00", "#43e5ff", "#ff4fa3", "#ff8a3d", "#a78bfa"];
 const PRESETS = [
-  { label: "Tyler · Phoebe · Fred", names: ["Tyler, the Creator", "Phoebe Bridgers", "Fred again.."], city: "Los Angeles" },
-  { label: "Tyler, the Creator", names: ["Tyler, the Creator"], city: "Atlanta" },
-  { label: "Phoebe Bridgers", names: ["Phoebe Bridgers"], city: "Nashville" },
+  { label: "Tyler · Phoebe · Fred", names: ["Tyler, the Creator", "Phoebe Bridgers", "Fred again.."], cities: ["Los Angeles"] },
+  { label: "Tyler, the Creator", names: ["Tyler, the Creator"], cities: ["Atlanta"] },
+  { label: "Phoebe Bridgers", names: ["Phoebe Bridgers"], cities: ["Nashville"] },
+  { label: "Fred — 3-city run", names: ["Fred again.."], cities: ["Los Angeles", "New York City", "Chicago"] },
 ];
 const PENDING_STEPS = [
   "Resolve headliners · /search",
@@ -45,7 +46,12 @@ function buildSheet(r: LineupResult, bill: Record<string, number>, brief: string
   if (brief) L.push("", "PROGRAMMER'S BRIEF", `  ${brief}`);
   if (r.sponsors.length)
     L.push("", "SPONSOR FIT", `  ${r.sponsors.slice(0, 6).map((s) => `${s.name} (${s.affinity.toFixed(2)})`).join(", ")}`);
-  if (r.places.length) {
+  if (r.tour.length > 1) {
+    r.tour.forEach((stop) => {
+      L.push("", `LOCAL PARTNERS — ${stop.city}`);
+      stop.places.slice(0, 6).forEach((p) => L.push(`  ${p.name}${p.address ? ` — ${p.address}` : ""}`));
+    });
+  } else if (r.places.length) {
     L.push("", `LOCAL PARTNERS${r.city ? ` — ${r.city}` : ""}`);
     r.places.slice(0, 6).forEach((p) => L.push(`  ${p.name}${p.address ? ` — ${p.address}` : ""}`));
   }
@@ -82,7 +88,8 @@ function ExportBar({ result, bill, brief }: { result: LineupResult; bill: Record
 export default function LineupApp() {
   const [headliners, setHeadliners] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
-  const [city, setCity] = useState("");
+  const [cities, setCities] = useState<string[]>([]);
+  const [cityDraft, setCityDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<LineupResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -121,7 +128,23 @@ export default function LineupApp() {
     }
   };
 
-  async function program(hs = headliners, c = city) {
+  const addCity = (raw: string) => {
+    const v = raw.trim().replace(/,+$/, "").trim();
+    if (v && !cities.includes(v)) setCities([...cities, v]);
+    setCityDraft("");
+  };
+  const onCityKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if ((e.key === "Enter" || e.key === ",") && cityDraft.trim()) {
+      e.preventDefault();
+      addCity(cityDraft);
+    } else if (e.key === "Enter") {
+      program();
+    } else if (e.key === "Backspace" && !cityDraft && cities.length) {
+      setCities(cities.slice(0, -1));
+    }
+  };
+
+  async function program(hs = headliners, cs = cities) {
     if (!hs.length) return;
     setLoading(true);
     setError(null);
@@ -130,7 +153,7 @@ export default function LineupApp() {
     try {
       const params = new URLSearchParams();
       hs.forEach((h) => params.append("h", h));
-      if (c.trim()) params.set("city", c.trim());
+      cs.forEach((c) => c.trim() && params.append("city", c.trim()));
       const res = await fetch(`/api/lineup?${params}`);
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
@@ -163,8 +186,8 @@ export default function LineupApp() {
 
   const runPreset = (p: (typeof PRESETS)[number]) => {
     setHeadliners(p.names);
-    setCity(p.city);
-    program(p.names, p.city);
+    setCities(p.cities);
+    program(p.names, p.cities);
   };
 
   return (
@@ -217,15 +240,28 @@ export default function LineupApp() {
               />
             </div>
           </div>
-          <div className="md:w-56">
-            <label className="font-mono text-[10px] uppercase tracking-widest text-ash">City</label>
-            <input
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && program()}
-              placeholder="Los Angeles"
-              className="mt-2 w-full border-b border-line bg-transparent py-1 text-sm text-bone outline-none placeholder:text-ash/60"
-            />
+          <div className="md:w-72">
+            <label className="font-mono text-[10px] uppercase tracking-widest text-ash">
+              Cities <span className="text-ash/50">· one stop, or a tour route</span>
+            </label>
+            <div className="mt-2 flex flex-wrap items-center gap-2 border-b border-line pb-2">
+              {cities.map((c) => (
+                <span key={c} className="inline-flex items-center gap-2 rounded-sm bg-bone/10 px-2 py-1 font-mono text-xs text-bone">
+                  {c}
+                  <button onClick={() => setCities(cities.filter((x) => x !== c))} className="opacity-60 hover:opacity-100" aria-label={`remove ${c}`}>
+                    ✕
+                  </button>
+                </span>
+              ))}
+              <input
+                value={cityDraft}
+                onChange={(e) => setCityDraft(e.target.value)}
+                onKeyDown={onCityKey}
+                onBlur={() => cityDraft.trim() && addCity(cityDraft)}
+                placeholder={cities.length ? "add a stop…" : "Los Angeles  ↵"}
+                className="min-w-[10ch] flex-1 bg-transparent py-1 text-sm text-bone outline-none placeholder:text-ash/60"
+              />
+            </div>
           </div>
         </div>
 
@@ -341,7 +377,7 @@ function Results({
       </div>
 
       {/* sponsors + places */}
-      <div className="mt-8 grid gap-6 md:grid-cols-2">
+      <div className={`mt-8 grid gap-6 ${result.tour.length > 1 ? "md:grid-cols-1" : "md:grid-cols-2"}`}>
         <section>
           <SectionLabel n="02" title="Sponsor Fit" hint="brands the crowd over-indexes on" />
           <div className="mt-3 flex flex-wrap gap-2">
@@ -351,17 +387,45 @@ function Results({
             {!sponsors.length && <p className="font-mono text-sm text-ash">—</p>}
           </div>
         </section>
-        <section>
-          <SectionLabel n="03" title="Local Partners" hint={city ? `spots in ${city}` : "add a city"} />
-          <ol className="mt-3 divide-y divide-line border-y border-line">
-            {places.map((p, i) => (
-              <PlaceRow key={p.id} p={p} delay={i * 0.03} />
-            ))}
-            {!places.length && <li className="py-4 font-mono text-sm text-ash">{city ? "—" : "add a city to see partners"}</li>}
-          </ol>
-        </section>
+        {result.tour.length <= 1 && (
+          <section>
+            <SectionLabel n="03" title="Local Partners" hint={city ? `spots in ${city}` : "add a city"} />
+            <ol className="mt-3 divide-y divide-line border-y border-line">
+              {places.map((p, i) => (
+                <PlaceRow key={p.id} p={p} delay={i * 0.03} />
+              ))}
+              {!places.length && <li className="py-4 font-mono text-sm text-ash">{city ? "—" : "add a city to see partners"}</li>}
+            </ol>
+          </section>
+        )}
       </div>
+
+      {result.tour.length > 1 && <TourPanel tour={result.tour} />}
     </div>
+  );
+}
+
+function TourPanel({ tour }: { tour: LineupResult["tour"] }) {
+  return (
+    <section className="mt-8">
+      <SectionLabel n="03" title="Tour Routing" hint="local partners per stop · the only lane that varies by city" />
+      <div className="mt-3 grid gap-x-6 gap-y-5 md:grid-cols-2 lg:grid-cols-3">
+        {tour.map((stop) => (
+          <div key={stop.city}>
+            <div className="flex items-baseline justify-between gap-2 border-b border-line pb-1">
+              <span className="font-display text-base font-bold uppercase tracking-wide text-bone">{stop.city}</span>
+              <span className="font-mono text-[10px] text-ash">{stop.places.length} partners</span>
+            </div>
+            <ol className="mt-1 divide-y divide-line">
+              {stop.places.map((p, i) => (
+                <PlaceRow key={p.id} p={p} delay={i * 0.02} />
+              ))}
+              {!stop.places.length && <li className="py-3 font-mono text-sm text-ash">—</li>}
+            </ol>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
