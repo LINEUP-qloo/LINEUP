@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type KeyboardEvent } from "react";
-import type { LineupResult, Pick, Place, Sponsor } from "@/lib/lineup";
+import type { Clash, LineupResult, Pick, Place, Sponsor } from "@/lib/lineup";
 
 const HUES = ["#ccff00", "#43e5ff", "#ff4fa3", "#ff8a3d", "#a78bfa"];
 const PRESETS = [
@@ -96,8 +96,18 @@ export default function LineupApp() {
   const [brief, setBrief] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
   const [bill, setBill] = useState<Record<string, number>>({}); // pickId → tier index
+  const [minPop, setMinPop] = useState(0.2);
+  const [maxPop, setMaxPop] = useState(0.8);
+  const [clashes, setClashes] = useState<Clash[]>([]);
+  const [clashLoading, setClashLoading] = useState(false);
+  const [clashScanned, setClashScanned] = useState(false);
+  const [pitchFor, setPitchFor] = useState<string | null>(null);
+  const [pitchText, setPitchText] = useState<string | null>(null);
+  const [pitchLoading, setPitchLoading] = useState(false);
 
-  const toggleBill = (id: string) =>
+  const toggleBill = (id: string) => {
+    setClashes([]); // membership changed → prior scan is stale
+    setClashScanned(false);
     setBill((b) => {
       if (id in b) {
         const { [id]: _drop, ...rest } = b;
@@ -105,6 +115,7 @@ export default function LineupApp() {
       }
       return { ...b, [id]: 1 }; // default new adds to Undercard
     });
+  };
   const moveTier = (id: string, dir: -1 | 1) =>
     setBill((b) => (id in b ? { ...b, [id]: Math.max(0, Math.min(TIERS.length - 1, b[id] + dir)) } : b));
 
@@ -150,10 +161,14 @@ export default function LineupApp() {
     setError(null);
     setBrief(null);
     setBill({});
+    setClashes([]);
+    setClashScanned(false);
     try {
       const params = new URLSearchParams();
       hs.forEach((h) => params.append("h", h));
       cs.forEach((c) => c.trim() && params.append("city", c.trim()));
+      params.set("minPop", minPop.toFixed(2));
+      params.set("maxPop", maxPop.toFixed(2));
       const res = await fetch(`/api/lineup?${params}`);
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
@@ -181,6 +196,38 @@ export default function LineupApp() {
       setBrief(null);
     } finally {
       setBriefLoading(false);
+    }
+  }
+
+  async function scanClashes() {
+    const ids = Object.keys(bill);
+    if (ids.length < 2) return;
+    setClashLoading(true);
+    try {
+      const res = await fetch("/api/clash", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) });
+      const j = await res.json();
+      setClashes(j.clashes ?? []);
+      setClashScanned(true);
+    } catch {
+      setClashes([]);
+    } finally {
+      setClashLoading(false);
+    }
+  }
+
+  async function openPitch(sponsor: string) {
+    if (!result) return;
+    setPitchFor(sponsor);
+    setPitchText(null);
+    setPitchLoading(true);
+    try {
+      const res = await fetch("/api/pitch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ result, sponsor }) });
+      const j = await res.json();
+      setPitchText(j.pitch ?? null);
+    } catch {
+      setPitchText(null);
+    } finally {
+      setPitchLoading(false);
     }
   }
 
@@ -265,6 +312,31 @@ export default function LineupApp() {
           </div>
         </div>
 
+        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line pt-4">
+          <span className="font-mono text-[10px] uppercase tracking-widest text-ash">Discovery band</span>
+          <label className="flex items-center gap-2 font-mono text-[10px] text-ash">
+            floor
+            <input
+              type="range" min={0} max={95} step={5} value={Math.round(minPop * 100)}
+              onChange={(e) => setMinPop(Math.min(Number(e.target.value) / 100, maxPop - 0.05))}
+              onPointerUp={() => result && program()}
+              className="w-24 accent-volt"
+            />
+            <span className="w-8 text-volt">{minPop.toFixed(2)}</span>
+          </label>
+          <label className="flex items-center gap-2 font-mono text-[10px] text-ash">
+            ceiling
+            <input
+              type="range" min={5} max={100} step={5} value={Math.round(maxPop * 100)}
+              onChange={(e) => setMaxPop(Math.max(Number(e.target.value) / 100, minPop + 0.05))}
+              onPointerUp={() => result && program()}
+              className="w-24 accent-volt"
+            />
+            <span className="w-8 text-volt">{maxPop.toFixed(2)}</span>
+          </label>
+          <span className="font-mono text-[9px] text-ash/60">lower = deeper cuts · higher = bigger names</span>
+        </div>
+
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             onClick={() => program()}
@@ -303,8 +375,15 @@ export default function LineupApp() {
           bill={bill}
           toggleBill={toggleBill}
           moveTier={moveTier}
+          clashes={clashes}
+          clashLoading={clashLoading}
+          clashScanned={clashScanned}
+          scanClashes={scanClashes}
+          onPitch={openPitch}
         />
       )}
+
+      {pitchFor && <PitchModal sponsor={pitchFor} text={pitchText} loading={pitchLoading} onClose={() => setPitchFor(null)} />}
 
       {!result && !loading && !error && (
         <p className="mt-16 text-center font-mono text-sm text-ash">
@@ -326,6 +405,11 @@ function Results({
   bill,
   toggleBill,
   moveTier,
+  clashes,
+  clashLoading,
+  clashScanned,
+  scanClashes,
+  onPitch,
 }: {
   result: LineupResult;
   hueFor: (n: string) => string;
@@ -335,6 +419,11 @@ function Results({
   bill: Record<string, number>;
   toggleBill: (id: string) => void;
   moveTier: (id: string, dir: -1 | 1) => void;
+  clashes: Clash[];
+  clashLoading: boolean;
+  clashScanned: boolean;
+  scanClashes: () => void;
+  onPitch: (sponsor: string) => void;
 }) {
   const { lineup, sponsors, places, audience, headliners, unresolved, trace, city } = result;
   return (
@@ -355,7 +444,7 @@ function Results({
 
       <BriefPanel brief={brief} loading={briefLoading} />
 
-      <BillPoster result={result} bill={bill} moveTier={moveTier} toggleBill={toggleBill} brief={brief} />
+      <BillPoster result={result} bill={bill} moveTier={moveTier} toggleBill={toggleBill} brief={brief} clashes={clashes} clashLoading={clashLoading} clashScanned={clashScanned} scanClashes={scanClashes} />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         {/* hero: the lineup */}
@@ -382,7 +471,7 @@ function Results({
           <SectionLabel n="02" title="Sponsor Fit" hint="brands the crowd over-indexes on" />
           <div className="mt-3 flex flex-wrap gap-2">
             {sponsors.map((s, i) => (
-              <SponsorCard key={s.id} s={s} delay={i * 0.03} />
+              <SponsorCard key={s.id} s={s} delay={i * 0.03} onPitch={onPitch} />
             ))}
             {!sponsors.length && <p className="font-mono text-sm text-ash">—</p>}
           </div>
@@ -515,20 +604,41 @@ function BillPoster({
   moveTier,
   toggleBill,
   brief,
+  clashes,
+  clashLoading,
+  clashScanned,
+  scanClashes,
 }: {
   result: LineupResult;
   bill: Record<string, number>;
   moveTier: (id: string, dir: -1 | 1) => void;
   toggleBill: (id: string) => void;
   brief: string | null;
+  clashes: Clash[];
+  clashLoading: boolean;
+  clashScanned: boolean;
+  scanClashes: () => void;
 }) {
   const count = Object.keys(bill).length;
   const byTier = TIERS.map((_, ti) => result.lineup.filter((p) => bill[p.id] === ti));
+  const nameOf = (id: string) => result.lineup.find((p) => p.id === id)?.name ?? id;
   return (
     <section className="mt-6 border border-line bg-ink-2/60 p-5">
       <div className="flex items-start justify-between gap-3">
         <SectionLabel n="00" title="The Bill" hint={count ? `${count} act${count > 1 ? "s" : ""} added · the bill you’re programming` : "add acts from the undercard below"} />
-        <ExportBar result={result} bill={bill} brief={brief} />
+        <div className="no-print flex shrink-0 items-center gap-2">
+          {count >= 2 && (
+            <button
+              onClick={scanClashes}
+              disabled={clashLoading}
+              className="border border-line px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-ash transition-colors hover:border-ember hover:text-ember disabled:opacity-40"
+              title="Check for acts that pull the same crowd"
+            >
+              {clashLoading ? "scanning…" : "⚠ scan clashes"}
+            </button>
+          )}
+          <ExportBar result={result} bill={bill} brief={brief} />
+        </div>
       </div>
       <div className="mt-5 space-y-4 text-center">
         <div className="flex flex-wrap items-baseline justify-center gap-x-6 gap-y-1">
@@ -558,6 +668,27 @@ function BillPoster({
           ) : null,
         )}
       </div>
+      {(clashScanned || clashLoading) && (
+        <div className="no-print mt-5 border-t border-line pt-3">
+          {clashes.length ? (
+            <>
+              <div className="font-mono text-[10px] uppercase tracking-widest text-ember">
+                ⚠ {clashes.length} clash{clashes.length > 1 ? "es" : ""} · acts pulling the same crowd — a wasted slot
+              </div>
+              <ul className="mt-2 space-y-1 font-mono text-[11px]">
+                {clashes.map((c, i) => (
+                  <li key={i} className="flex flex-wrap items-center gap-x-2">
+                    <span className="text-bone">{nameOf(c.a)} ↔ {nameOf(c.b)}</span>
+                    <span className="text-ash">overlap {c.score.toFixed(2)}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            !clashLoading && <div className="font-mono text-[11px] text-volt">✓ no clashes — every act covers a distinct slice of the crowd</div>
+          )}
+        </div>
+      )}
       {!count && (
         <p className="no-print mt-4 text-center font-mono text-sm text-ash">
           Hit <span className="text-volt">+ add</span> on undercard picks to build your bill — then promote them with ▲▼.
@@ -593,11 +724,59 @@ function AttributionBar({ drivenBy, hueFor }: { drivenBy: { name: string; score:
   );
 }
 
-function SponsorCard({ s, delay }: { s: Sponsor; delay: number }) {
+function SponsorCard({ s, delay, onPitch }: { s: Sponsor; delay: number; onPitch: (sponsor: string) => void }) {
   return (
-    <div className="anim-rise flex items-center gap-2 border border-line bg-ink-2/60 px-3 py-2" style={{ animationDelay: `${delay}s` }}>
+    <div className="anim-rise group flex items-center gap-2 border border-line bg-ink-2/60 px-3 py-2" style={{ animationDelay: `${delay}s` }}>
       <span className="font-display text-sm font-bold text-bone">{s.name}</span>
       <span className="font-mono text-[10px] text-volt">{s.affinity.toFixed(2)}</span>
+      <button
+        onClick={() => onPitch(s.name)}
+        className="no-print ml-1 border border-line px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-ash opacity-0 transition hover:border-volt hover:text-volt group-hover:opacity-100"
+        title={`Draft a sponsorship pitch to ${s.name}`}
+      >
+        pitch →
+      </button>
+    </div>
+  );
+}
+
+function PitchModal({ sponsor, text, loading, onClose }: { sponsor: string; text: string | null; loading: boolean; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* clipboard blocked */
+    }
+  };
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-4" onClick={onClose}>
+      <div className="w-full max-w-2xl border border-line bg-ink-2 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 border-b border-line pb-3">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-widest text-volt">Sponsorship Pitch · grounded in the taste data</div>
+            <div className="font-display text-xl font-bold text-bone">{sponsor}</div>
+          </div>
+          <button onClick={onClose} className="font-mono text-base text-ash hover:text-bone" aria-label="close">✕</button>
+        </div>
+        {loading ? (
+          <p className="mt-4 font-mono text-sm text-ash cursor-blink">drafting the pitch from the taste data</p>
+        ) : text ? (
+          <>
+            <pre className="mt-4 max-h-[60vh] overflow-auto whitespace-pre-wrap font-body text-[15px] leading-relaxed text-bone">{text}</pre>
+            <div className="mt-4 flex justify-end">
+              <button onClick={copy} className="border border-line px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-ash transition-colors hover:border-volt hover:text-volt">
+                {copied ? "✓ copied" : "⧉ copy email"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="mt-4 font-mono text-sm text-ash">Pitch unavailable — set GROQ_API_KEY to enable grounded drafting.</p>
+        )}
+      </div>
     </div>
   );
 }

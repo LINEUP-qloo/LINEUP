@@ -59,3 +59,41 @@ export async function narrate(r: LineupResult): Promise<string | null> {
     return null; // brief is optional flavor — never break the core result
   }
 }
+
+const PITCH_SYSTEM =
+  "You are the partnerships lead for a live-music promoter pitching a brand sponsorship. " +
+  "Write a short outreach email: a 'Subject:' line, then a 4-6 sentence body. Confident, specific, no fluff. " +
+  "Use ONLY the facts provided — never invent artists, brands, venues, demographics, or numbers. No markdown, no bullet points.";
+
+// A real deliverable: a grounded sponsorship outreach email to a specific brand, built from
+// the measured audience + that brand's own Qloo affinity. Same no-inventing guarantee as the brief.
+export async function sponsorPitch(r: LineupResult, sponsorName: string): Promise<string | null> {
+  if (!KEY || !r.headliners.length || !sponsorName) return null;
+  const s = r.sponsors.find((x) => x.name.toLowerCase() === sponsorName.toLowerCase());
+  const prompt =
+    `Facts:\n${digest(r)}\n\nPitch target brand: ${sponsorName}${s ? ` (measured audience affinity ${s.affinity.toFixed(2)})` : ""}\n\n` +
+    `Write the sponsorship outreach email from the promoter to ${sponsorName}'s brand-partnerships team proposing they sponsor this bill. ` +
+    `Cite the measured audience over-index (age/gender) and ${sponsorName}'s affinity, name 1-2 headliners and one undercard act, and propose a concrete activation. Subject line first.`;
+  try {
+    const res = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: "system", content: PITCH_SYSTEM },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.6,
+        max_tokens: 900,
+        reasoning_effort: "low",
+      }),
+    });
+    if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const j = await res.json();
+    return j?.choices?.[0]?.message?.content?.trim() || null;
+  } catch (e) {
+    console.error("pitch failed:", (e as Error).message);
+    return null;
+  }
+}

@@ -178,6 +178,30 @@ export async function buildLineup(
   };
 }
 
+export type Clash = { a: string; b: string; score: number };
+
+// Two acts on the bill "clash" when each sits high in the other's taste-neighbor list —
+// they pull the same crowd, so booking both wastes a slot. Real Qloo signal: one
+// insights(artist, signal=act) per act. Verified: same-scene acts ≈0.95, unrelated absent.
+const CLASH_THRESHOLD = 0.7;
+export async function findClashes(ids: string[]): Promise<Clash[]> {
+  const uniq = [...new Set(ids)].filter(Boolean);
+  if (uniq.length < 2) return [];
+  const maps = await Promise.all(
+    uniq.map(async (id) => {
+      const r = await insights({ filterType: "urn:entity:artist", signalEntities: [id], take: 50 });
+      return new Map((r.results?.entities ?? []).map((e) => [e.entity_id, e.query?.affinity ?? 0]));
+    }),
+  );
+  const clashes: Clash[] = [];
+  for (let i = 0; i < uniq.length; i++)
+    for (let j = i + 1; j < uniq.length; j++) {
+      const score = Math.max(maps[i].get(uniq[j]) ?? 0, maps[j].get(uniq[i]) ?? 0);
+      if (score >= CLASH_THRESHOLD) clashes.push({ a: uniq[i], b: uniq[j], score });
+    }
+  return clashes.sort((x, y) => y.score - x.score);
+}
+
 // Qloo returns one demographic entry per headliner; average the signed over/under-index
 // values across them for the lineup's combined audience read.
 function averageDemographics(entries: unknown[] | undefined): AudienceRead | null {
