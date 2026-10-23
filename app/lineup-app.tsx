@@ -24,6 +24,9 @@ const AGE_LABEL: Record<string, string> = {
   "45_to_54": "45–54",
   "55_and_older": "55+",
 };
+// Bill tiers, in billing order below the headliners. Index 0 = highest on the poster.
+const TIERS = ["Main Support", "Undercard", "Openers"];
+const TIER_SIZE = ["text-2xl md:text-3xl", "text-lg md:text-xl", "text-sm md:text-base"];
 
 const firstName = (n: string) => n.split(/[ ,]/)[0];
 const pct = (n: number) => `${Math.round(n * 100)}%`;
@@ -37,6 +40,18 @@ export default function LineupApp() {
   const [error, setError] = useState<string | null>(null);
   const [brief, setBrief] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
+  const [bill, setBill] = useState<Record<string, number>>({}); // pickId → tier index
+
+  const toggleBill = (id: string) =>
+    setBill((b) => {
+      if (id in b) {
+        const { [id]: _drop, ...rest } = b;
+        return rest;
+      }
+      return { ...b, [id]: 1 }; // default new adds to Undercard
+    });
+  const moveTier = (id: string, dir: -1 | 1) =>
+    setBill((b) => (id in b ? { ...b, [id]: Math.max(0, Math.min(TIERS.length - 1, b[id] + dir)) } : b));
 
   const hueFor = useMemo(() => {
     const m = new Map<string, string>();
@@ -63,6 +78,7 @@ export default function LineupApp() {
     setLoading(true);
     setError(null);
     setBrief(null);
+    setBill({});
     try {
       const params = new URLSearchParams();
       hs.forEach((h) => params.append("h", h));
@@ -194,7 +210,16 @@ export default function LineupApp() {
       {loading && !result && <LoadingTrace />}
 
       {result && (
-        <Results result={result} hueFor={hueFor} loading={loading} brief={brief} briefLoading={briefLoading} />
+        <Results
+          result={result}
+          hueFor={hueFor}
+          loading={loading}
+          brief={brief}
+          briefLoading={briefLoading}
+          bill={bill}
+          toggleBill={toggleBill}
+          moveTier={moveTier}
+        />
       )}
 
       {!result && !loading && !error && (
@@ -214,12 +239,18 @@ function Results({
   loading,
   brief,
   briefLoading,
+  bill,
+  toggleBill,
+  moveTier,
 }: {
   result: LineupResult;
   hueFor: (n: string) => string;
   loading: boolean;
   brief: string | null;
   briefLoading: boolean;
+  bill: Record<string, number>;
+  toggleBill: (id: string) => void;
+  moveTier: (id: string, dir: -1 | 1) => void;
 }) {
   const { lineup, sponsors, places, audience, headliners, unresolved, trace, city } = result;
   return (
@@ -240,13 +271,15 @@ function Results({
 
       <BriefPanel brief={brief} loading={briefLoading} />
 
+      <BillPoster result={result} bill={bill} moveTier={moveTier} toggleBill={toggleBill} />
+
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         {/* hero: the lineup */}
         <section className="lg:col-span-2">
           <SectionLabel n="01" title="The Undercard" hint="high taste-fit · bookable · not already famous" />
           <ol className="mt-3 divide-y divide-line border-y border-line">
             {lineup.map((p, i) => (
-              <LineupRow key={p.id} p={p} rank={i + 1} hueFor={hueFor} delay={i * 0.04} />
+              <LineupRow key={p.id} p={p} rank={i + 1} hueFor={hueFor} delay={i * 0.04} onBill={p.id in bill} toggleBill={toggleBill} />
             ))}
             {!lineup.length && <li className="py-6 font-mono text-sm text-ash">No undercard found in band.</li>}
           </ol>
@@ -310,7 +343,21 @@ function SectionLabel({ n, title, hint }: { n: string; title: string; hint: stri
   );
 }
 
-function LineupRow({ p, rank, hueFor, delay }: { p: Pick; rank: number; hueFor: (n: string) => string; delay: number }) {
+function LineupRow({
+  p,
+  rank,
+  hueFor,
+  delay,
+  onBill,
+  toggleBill,
+}: {
+  p: Pick;
+  rank: number;
+  hueFor: (n: string) => string;
+  delay: number;
+  onBill: boolean;
+  toggleBill: (id: string) => void;
+}) {
   return (
     <li className="anim-rise grid grid-cols-[2rem_1fr_auto] items-center gap-3 py-3" style={{ animationDelay: `${delay}s` }}>
       <span className="font-mono text-sm text-ash">{String(rank).padStart(2, "0")}</span>
@@ -330,11 +377,76 @@ function LineupRow({ p, rank, hueFor, delay }: { p: Pick; rank: number; hueFor: 
           <AttributionBar drivenBy={p.drivenBy} hueFor={hueFor} />
         </div>
       </div>
-      <div className="text-right">
-        <div className="font-mono text-base text-volt">{p.affinity.toFixed(2)}</div>
-        <div className="font-mono text-[10px] text-ash">pop {p.popularity.toFixed(2)}</div>
+      <div className="flex flex-col items-end gap-1.5">
+        <div className="text-right">
+          <div className="font-mono text-base text-volt">{p.affinity.toFixed(2)}</div>
+          <div className="font-mono text-[10px] text-ash">pop {p.popularity.toFixed(2)}</div>
+        </div>
+        <button
+          onClick={() => toggleBill(p.id)}
+          className={
+            onBill
+              ? "border border-volt bg-volt/15 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-volt"
+              : "border border-line px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-ash transition-colors hover:border-volt hover:text-volt"
+          }
+        >
+          {onBill ? "✓ on bill" : "+ add"}
+        </button>
       </div>
     </li>
+  );
+}
+
+function BillPoster({
+  result,
+  bill,
+  moveTier,
+  toggleBill,
+}: {
+  result: LineupResult;
+  bill: Record<string, number>;
+  moveTier: (id: string, dir: -1 | 1) => void;
+  toggleBill: (id: string) => void;
+}) {
+  const count = Object.keys(bill).length;
+  const byTier = TIERS.map((_, ti) => result.lineup.filter((p) => bill[p.id] === ti));
+  return (
+    <section className="mt-6 border border-line bg-ink-2/60 p-5">
+      <SectionLabel n="00" title="The Bill" hint={count ? `${count} act${count > 1 ? "s" : ""} added · the bill you’re programming` : "add acts from the undercard below"} />
+      <div className="mt-5 space-y-4 text-center">
+        <div className="flex flex-wrap items-baseline justify-center gap-x-6 gap-y-1">
+          {result.headliners.map((h, i) => (
+            <span key={h.id} className="font-display text-3xl font-black uppercase tracking-tight md:text-5xl" style={{ color: HUES[i % HUES.length] }}>
+              {h.name}
+            </span>
+          ))}
+        </div>
+        {TIERS.map((tier, ti) =>
+          byTier[ti].length ? (
+            <div key={tier}>
+              <div className="font-mono text-[9px] uppercase tracking-[0.25em] text-ash">{tier}</div>
+              <div className="mt-1 flex flex-wrap items-center justify-center gap-x-5 gap-y-1">
+                {byTier[ti].map((p) => (
+                  <span key={p.id} className={`group inline-flex items-center gap-1.5 font-display font-bold text-bone ${TIER_SIZE[ti]}`}>
+                    {p.name}
+                    <span className="inline-flex items-center gap-0.5 opacity-40 transition-opacity group-hover:opacity-100">
+                      <button onClick={() => moveTier(p.id, -1)} disabled={ti === 0} className="font-mono text-[11px] text-ash hover:text-volt disabled:opacity-20" aria-label="move up a tier">▲</button>
+                      <button onClick={() => moveTier(p.id, 1)} disabled={ti === TIERS.length - 1} className="font-mono text-[11px] text-ash hover:text-volt disabled:opacity-20" aria-label="move down a tier">▼</button>
+                      <button onClick={() => toggleBill(p.id)} className="font-mono text-[11px] text-ash hover:text-ember" aria-label="remove from bill">✕</button>
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null,
+        )}
+      </div>
+      {!count && (
+        <p className="mt-4 text-center font-mono text-sm text-ash">
+          Hit <span className="text-volt">+ add</span> on undercard picks to build your bill — then promote them with ▲▼.
+        </p>
+      )}
+    </section>
   );
 }
 
