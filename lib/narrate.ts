@@ -8,13 +8,13 @@ const ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
 const SYSTEM =
   "You are a veteran live-music talent buyer and festival programmer. Write in a sharp, confident industry voice. " +
-  "Use ONLY the facts provided — never invent artists, brands, venues, or numbers. " +
-  "No markdown, no bullet points, no headings, no preamble.";
+  "Use ONLY the facts provided. Never invent artists, brands, venues, or numbers. " +
+  "No markdown, no bullet points, no headings, no preamble. Never use em dashes; use commas or periods.";
 
 function digest(r: LineupResult): string {
   const first = (n: string) => n.split(/[ ,]/)[0];
   const lines: string[] = [];
-  lines.push(`Headliners: ${r.headliners.map((h) => h.name).join("; ")}${r.city ? ` — city: ${r.city}` : ""}`);
+  lines.push(`Headliners: ${r.headliners.map((h) => h.name).join("; ")}${r.city ? `; city: ${r.city}` : ""}`);
   if (r.audience) {
     const age = r.audience.age.map((a) => `${a.bracket} ${a.score >= 0 ? "+" : ""}${a.score.toFixed(2)}`).join(", ");
     lines.push(`Audience over/under-index: age ${age}; gender male ${r.audience.gender.male.toFixed(2)}, female ${r.audience.gender.female.toFixed(2)}`);
@@ -63,7 +63,7 @@ export async function narrate(r: LineupResult): Promise<string | null> {
 const PITCH_SYSTEM =
   "You are the partnerships lead for a live-music promoter pitching a brand sponsorship. " +
   "Write a short outreach email: a 'Subject:' line, then a 4-6 sentence body. Confident, specific, no fluff. " +
-  "Use ONLY the facts provided — never invent artists, brands, venues, demographics, or numbers. No markdown, no bullet points.";
+  "Use ONLY the facts provided. Never invent artists, brands, venues, demographics, or numbers. No markdown, no bullet points. Never use em dashes; use commas or periods.";
 
 // A real deliverable: a grounded sponsorship outreach email to a specific brand, built from
 // the measured audience + that brand's own Qloo affinity. Same no-inventing guarantee as the brief.

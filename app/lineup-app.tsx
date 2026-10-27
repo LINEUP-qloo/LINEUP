@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import type { Clash, LineupResult, Pick, Place, Sponsor } from "@/lib/lineup";
+import { Cursor, HeroCanvas, HeroObject, HeroText, Magnetic, Reveal, SmoothScroll, StackSection, Tilt, refreshScroll } from "./motion";
 
-const HUES = ["#ccff00", "#43e5ff", "#ff4fa3", "#ff8a3d", "#a78bfa"];
+const HUES = ["var(--hue-0)", "var(--hue-1)", "var(--hue-2)", "var(--hue-3)", "var(--hue-4)"]; // theme-driven, defined in globals.css
+const MARQUEE = ["Program the bill", "By taste, not guesswork", "The undercard", "Sponsor fit", "Local partners", "Audience read"];
 const PRESETS = [
   { label: "Tyler · Phoebe · Fred", names: ["Tyler, the Creator", "Phoebe Bridgers", "Fred again.."], cities: ["Los Angeles"] },
   { label: "Tyler, the Creator", names: ["Tyler, the Creator"], cities: ["Atlanta"] },
   { label: "Phoebe Bridgers", names: ["Phoebe Bridgers"], cities: ["Nashville"] },
-  { label: "Fred — 3-city run", names: ["Fred again.."], cities: ["Los Angeles", "New York City", "Chicago"] },
+  { label: "Fred · 3-city run", names: ["Fred again.."], cities: ["Los Angeles", "New York City", "Chicago"] },
 ];
 const PENDING_STEPS = [
   "Resolve headliners · /search",
@@ -35,7 +37,7 @@ const pct = (n: number) => `${Math.round(n * 100)}%`;
 // Plain-text bill sheet — the thing a booker pastes into an email to an agent/partner.
 function buildSheet(r: LineupResult, bill: Record<string, number>, brief: string | null): string {
   const L: string[] = [];
-  L.push(`LINEUP${r.city ? ` — ${r.city}` : ""}`);
+  L.push(`LINEUP${r.city ? ` · ${r.city}` : ""}`);
   L.push(`Headliners: ${r.headliners.map((h) => h.name).join(" · ")}`);
   L.push("", "THE BILL");
   TIERS.forEach((tier, ti) => {
@@ -48,12 +50,12 @@ function buildSheet(r: LineupResult, bill: Record<string, number>, brief: string
     L.push("", "SPONSOR FIT", `  ${r.sponsors.slice(0, 6).map((s) => `${s.name} (${s.affinity.toFixed(2)})`).join(", ")}`);
   if (r.tour.length > 1) {
     r.tour.forEach((stop) => {
-      L.push("", `LOCAL PARTNERS — ${stop.city}`);
-      stop.places.slice(0, 6).forEach((p) => L.push(`  ${p.name}${p.address ? ` — ${p.address}` : ""}`));
+      L.push("", `LOCAL PARTNERS · ${stop.city}`);
+      stop.places.slice(0, 6).forEach((p) => L.push(`  ${p.name}${p.address ? ` · ${p.address}` : ""}`));
     });
   } else if (r.places.length) {
-    L.push("", `LOCAL PARTNERS${r.city ? ` — ${r.city}` : ""}`);
-    r.places.slice(0, 6).forEach((p) => L.push(`  ${p.name}${p.address ? ` — ${p.address}` : ""}`));
+    L.push("", `LOCAL PARTNERS${r.city ? ` · ${r.city}` : ""}`);
+    r.places.slice(0, 6).forEach((p) => L.push(`  ${p.name}${p.address ? ` · ${p.address}` : ""}`));
   }
   if (r.audience) {
     const a = r.audience;
@@ -104,6 +106,18 @@ export default function LineupApp() {
   const [pitchFor, setPitchFor] = useState<string | null>(null);
   const [pitchText, setPitchText] = useState<string | null>(null);
   const [pitchLoading, setPitchLoading] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
+  // content height jumps when results/brief/clashes stream in — keep Lenis's
+  // scroll limit in sync or wheel scrolling clamps to the old (shorter) page.
+  useEffect(() => {
+    const r = requestAnimationFrame(() => refreshScroll());
+    return () => cancelAnimationFrame(r);
+  }, [result, brief, loading, clashes, bill]);
 
   const toggleBill = (id: string) => {
     setClashes([]); // membership changed → prior scan is stale
@@ -122,7 +136,7 @@ export default function LineupApp() {
   const hueFor = useMemo(() => {
     const m = new Map<string, string>();
     result?.headliners.forEach((h, i) => m.set(h.name, HUES[i % HUES.length]));
-    return (n: string) => m.get(n) ?? "#86867d";
+    return (n: string) => m.get(n) ?? "var(--color-ash)";
   }, [result]);
 
   const addHeadliner = (raw: string) => {
@@ -238,25 +252,63 @@ export default function LineupApp() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl px-5 py-8 md:px-8 md:py-12">
-      {/* masthead */}
-      <header className="flex items-end justify-between border-b border-line pb-5">
-        <div>
-          <h1 className="font-display text-5xl font-black leading-[0.82] tracking-tight text-bone md:text-7xl">
-            LINE<span className="text-volt">UP</span>
-          </h1>
-          <p className="mt-2 max-w-md font-mono text-[11px] uppercase tracking-[0.2em] text-ash">
-            Program the bill by taste — not by guesswork
-          </p>
-        </div>
-        <div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-ash md:flex">
-          <span className="h-1.5 w-1.5 rounded-full bg-volt anim-pulse" />
-          powered by Qloo taste graph
-        </div>
-      </header>
+    <>
+      <SmoothScroll />
+      <Cursor />
 
-      {/* input console */}
-      <section className="no-print mt-6 border border-line bg-ink-2/60 p-4 md:p-5">
+      {/* fixed top bar */}
+      <div className="no-print fixed inset-x-0 top-0 z-50 flex items-center justify-between px-5 py-4 md:px-8">
+        <span className="font-display text-sm font-black uppercase tracking-tight text-bone mix-blend-difference">
+          LINE<span className="text-volt">UP</span>
+        </span>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+            className="flex items-center gap-2 border border-line bg-ink/40 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-widest text-ash backdrop-blur transition-colors hover:border-bone hover:text-bone"
+            data-cursor
+          >
+            <span className="h-2 w-2 rounded-full border border-current" style={{ background: theme === "dark" ? "transparent" : "currentColor" }} />
+            {theme === "dark" ? "dark" : "light"}
+          </button>
+          <div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-ash md:flex">
+            <span className="h-1.5 w-1.5 rounded-full bg-volt anim-pulse" />
+            powered by Qloo taste graph
+          </div>
+        </div>
+      </div>
+
+      {/* cinematic hero */}
+      <section className="no-print relative flex min-h-screen flex-col overflow-hidden px-5 md:px-8">
+        <HeroCanvas theme={theme} />
+        <HeroObject theme={theme} />
+        <div className="vignette" />
+        <HeroText className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col justify-end pb-6 pt-28">
+          <p className="hero-in font-mono text-[11px] uppercase tracking-[0.3em] text-ash">
+            Taste-driven live-event programming
+          </p>
+          <h1 className="hero-title text-bone" aria-label="LINEUP">
+            {"LINE".split("").map((c, i) => (
+              <span key={i} className="hero-char" style={{ animationDelay: `${0.05 + i * 0.07}s` }} aria-hidden>
+                {c}
+              </span>
+            ))}
+            {"UP".split("").map((c, i) => (
+              <span key={i} className="hero-char text-volt" style={{ animationDelay: `${0.05 + (4 + i) * 0.07}s` }} aria-hidden>
+                {c}
+              </span>
+            ))}
+          </h1>
+          <p className="hero-in mt-4 max-w-xl text-lg leading-snug text-ash md:text-xl">
+            Give it your headliners and a city. Qloo&apos;s taste graph returns the support acts,
+            sponsors, and local partners your actual audience over-indexes on, with the reason
+            behind every pick.
+          </p>
+        </HeroText>
+
+        {/* input console — lives in the hero, immediately usable */}
+        <section className="no-print relative z-10 mx-auto mb-10 w-full max-w-6xl border border-line bg-ink-2/60 p-4 backdrop-blur md:p-5">
         <div className="grid gap-4 md:grid-cols-[1fr_auto]">
           <div>
             <label className="font-mono text-[10px] uppercase tracking-widest text-ash">Headliners</label>
@@ -265,7 +317,10 @@ export default function LineupApp() {
                 <span
                   key={h}
                   className="inline-flex items-center gap-2 rounded-sm px-2 py-1 font-mono text-xs"
-                  style={{ background: `${HUES[i % HUES.length]}1a`, color: HUES[i % HUES.length] }}
+                  style={{
+                    background: `color-mix(in oklab, ${HUES[i % HUES.length]} 14%, transparent)`,
+                    color: HUES[i % HUES.length],
+                  }}
                 >
                   {h}
                   <button
@@ -338,13 +393,16 @@ export default function LineupApp() {
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => program()}
-            disabled={!headliners.length || loading}
-            className="bg-volt px-4 py-2 font-display text-sm font-bold uppercase tracking-wide text-black transition-opacity hover:opacity-90 disabled:opacity-30"
-          >
-            {loading ? "Programming…" : "Program the bill →"}
-          </button>
+          <Magnetic>
+            <button
+              onClick={() => program()}
+              disabled={!headliners.length || loading}
+              data-cursor
+              className="bg-volt px-5 py-2.5 font-display text-base font-bold uppercase tracking-wide text-ink transition-opacity hover:opacity-90 disabled:opacity-30"
+            >
+              {loading ? "Programming…" : "Program the bill →"}
+            </button>
+          </Magnetic>
           <span className="mx-1 font-mono text-[10px] uppercase tracking-widest text-ash">or try</span>
           {PRESETS.map((p) => (
             <button
@@ -357,8 +415,31 @@ export default function LineupApp() {
             </button>
           ))}
         </div>
+        </section>
+
+        <div className="no-print scroll-cue pointer-events-none absolute inset-x-0 bottom-5 z-10 flex justify-center font-mono text-[10px] uppercase tracking-[0.3em] text-ash">
+          scroll ↓
+        </div>
       </section>
 
+      {/* kinetic marquee band */}
+      <div className="marquee-mask no-print overflow-hidden border-y border-line py-4">
+        <div className="marquee-track font-display text-4xl font-black uppercase leading-none md:text-6xl">
+          {[0, 1].map((copy) => (
+            <span key={copy} className="flex shrink-0 items-center" aria-hidden={copy === 1}>
+              {MARQUEE.map((w, i) => (
+                <span key={i} className="flex items-center">
+                  <span className={i % 2 ? "marquee-word" : "text-bone"}>{w}</span>
+                  <span className="mx-6 text-volt md:mx-10">✳</span>
+                </span>
+              ))}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* results */}
+      <div className="mx-auto max-w-6xl px-5 pb-24 md:px-8">
       {error && (
         <p className="mt-5 border border-ember/40 bg-ember/5 px-4 py-3 font-mono text-sm text-ember">⚠ {error}</p>
       )}
@@ -387,10 +468,11 @@ export default function LineupApp() {
 
       {!result && !loading && !error && (
         <p className="mt-16 text-center font-mono text-sm text-ash">
-          Enter your headliners and hit <span className="text-volt">Program the bill</span>.
+          Scroll back up, enter your headliners, and hit <span className="text-volt">Program the bill</span>.
         </p>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -428,88 +510,123 @@ function Results({
   const { lineup, sponsors, places, audience, headliners, unresolved, trace, city } = result;
   return (
     <div className={loading ? "pointer-events-none opacity-50" : ""}>
-      {/* the bill */}
-      <div className="no-print mt-8 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <span className="font-mono text-[10px] uppercase tracking-widest text-ash">Billing</span>
-        {headliners.map((h, i) => (
-          <span key={h.id} className="font-display text-2xl font-bold" style={{ color: HUES[i % HUES.length] }}>
-            {h.name}
-          </span>
-        ))}
-        {city && <span className="font-mono text-xs text-ash">· {city}</span>}
-      </div>
-      {unresolved.length > 0 && (
-        <p className="mt-1 font-mono text-[11px] text-ember/80">couldn’t resolve: {unresolved.join(", ")}</p>
-      )}
+      {/* centered intro: billing + brief + bill */}
+      <div className="mx-auto max-w-6xl px-5 md:px-8">
+        <div className="no-print mt-10 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <span className="font-mono text-[10px] uppercase tracking-widest text-ash">Now programming</span>
+          {headliners.map((h, i) => (
+            <span key={h.id} className="font-display text-2xl font-black tracking-tight" style={{ color: HUES[i % HUES.length] }}>
+              {h.name}
+            </span>
+          ))}
+          {city && <span className="font-mono text-xs text-ash">· {city}</span>}
+        </div>
+        {unresolved.length > 0 && (
+          <p className="mt-1 font-mono text-[11px] text-ember/80">couldn’t resolve: {unresolved.join(", ")}</p>
+        )}
 
-      <BriefPanel brief={brief} loading={briefLoading} />
+        <Reveal>
+          <BriefPanel brief={brief} loading={briefLoading} />
+        </Reveal>
 
-      <BillPoster result={result} bill={bill} moveTier={moveTier} toggleBill={toggleBill} brief={brief} clashes={clashes} clashLoading={clashLoading} clashScanned={clashScanned} scanClashes={scanClashes} />
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        {/* hero: the lineup */}
-        <section className="no-print lg:col-span-2">
-          <SectionLabel n="01" title="The Undercard" hint="high taste-fit · bookable · not already famous" />
-          <ol className="mt-3 divide-y divide-line border-y border-line">
-            {lineup.map((p, i) => (
-              <LineupRow key={p.id} p={p} rank={i + 1} hueFor={hueFor} delay={i * 0.04} onBill={p.id in bill} toggleBill={toggleBill} />
-            ))}
-            {!lineup.length && <li className="py-6 font-mono text-sm text-ash">No undercard found in band.</li>}
-          </ol>
-        </section>
-
-        {/* right rail: audience + trace */}
-        <aside className="space-y-6">
-          {audience && <AudiencePanel audience={audience} />}
-          <TracePanel trace={trace} />
-        </aside>
+        <Reveal className="mt-14">
+          <BillPoster result={result} bill={bill} moveTier={moveTier} toggleBill={toggleBill} brief={brief} clashes={clashes} clashLoading={clashLoading} clashScanned={clashScanned} scanClashes={scanClashes} />
+        </Reveal>
       </div>
 
-      {/* sponsors + places */}
-      <div className={`mt-8 grid gap-6 ${result.tour.length > 1 ? "md:grid-cols-1" : "md:grid-cols-2"}`}>
-        <section>
-          <SectionLabel n="02" title="Sponsor Fit" hint="brands the crowd over-indexes on" />
-          <div className="mt-3 flex flex-wrap gap-2">
-            {sponsors.map((s, i) => (
-              <SponsorCard key={s.id} s={s} delay={i * 0.03} onPitch={onPitch} />
-            ))}
-            {!sponsors.length && <p className="font-mono text-sm text-ash">—</p>}
+      {/* 01–04 stack on top of each other; each pins and the next scrolls up over it */}
+      <div className="mt-24">
+        {/* 01 — undercard: the base of the stack. Not pinned (it's the long list), so it
+            scrolls smoothly and shows every act; 02–04 pin and stack up over it. */}
+        <section className="stack-card no-print relative bg-ink">
+          <div className="mx-auto w-full max-w-6xl px-5 py-24 md:px-8">
+            <div className="relative">
+              <span className="watermark pointer-events-none absolute -right-2 -top-8 z-0 select-none font-display text-[24vw] font-black leading-none">01</span>
+              <div className="relative z-10">
+                <SectionLabel n="01" title="The Undercard" hint="high taste-fit · bookable · not already famous" />
+                <ol className="mt-8 border-t border-line">
+                  {lineup.map((p, i) => (
+                    <LineupRow key={p.id} p={p} rank={i + 1} hueFor={hueFor} delay={i * 0.03} onBill={p.id in bill} toggleBill={toggleBill} />
+                  ))}
+                  {!lineup.length && <li className="py-8 font-mono text-sm text-ash">No undercard found in band.</li>}
+                </ol>
+              </div>
+            </div>
           </div>
         </section>
-        {result.tour.length <= 1 && (
-          <section>
-            <SectionLabel n="03" title="Local Partners" hint={city ? `spots in ${city}` : "add a city"} />
-            <ol className="mt-3 divide-y divide-line border-y border-line">
-              {places.map((p, i) => (
-                <PlaceRow key={p.id} p={p} delay={i * 0.03} />
-              ))}
-              {!places.length && <li className="py-4 font-mono text-sm text-ash">{city ? "—" : "add a city to see partners"}</li>}
-            </ol>
-          </section>
+
+        {/* 02 — sponsors: offset tile grid */}
+        <StackSection>
+          <div className="relative">
+            <span className="watermark pointer-events-none absolute -left-2 -top-8 z-0 select-none font-display text-[24vw] font-black leading-none">02</span>
+            <div className="relative z-10">
+              <SectionLabel n="02" title="Sponsor Fit" hint="brands the crowd over-indexes on" />
+              <div className="mt-8 grid grid-cols-2 items-start gap-3 md:grid-cols-3 lg:grid-cols-4">
+                {sponsors.map((s, i) => (
+                  <Tilt key={s.id} max={12} className={i % 2 === 1 ? "md:mt-7" : ""}>
+                    <SponsorCard s={s} delay={i * 0.03} onPitch={onPitch} />
+                  </Tilt>
+                ))}
+                {!sponsors.length && <p className="font-mono text-sm text-ash">·</p>}
+              </div>
+            </div>
+          </div>
+        </StackSection>
+
+        {/* 03 — partners (quiet column) or tour (stepped route) */}
+        <StackSection>
+          {result.tour.length > 1 ? (
+            <TourPanel tour={result.tour} />
+          ) : (
+            <section>
+              <SectionLabel n="03" title="Local Partners" hint={city ? `spots in ${city}` : "add a city"} />
+              <div className="mt-8 max-w-2xl">
+                <ol className="border-l border-line">
+                  {places.map((p, i) => (
+                    <PlaceRow key={p.id} p={p} index={i + 1} delay={i * 0.03} />
+                  ))}
+                  {!places.length && <li className="py-4 pl-5 font-mono text-sm text-ash">{city ? "·" : "add a city to see partners"}</li>}
+                </ol>
+              </div>
+            </section>
+          )}
+        </StackSection>
+
+        {/* 04 — audience: centered, data-forward */}
+        {audience && (
+          <StackSection>
+            <AudiencePanel audience={audience} />
+          </StackSection>
         )}
       </div>
 
-      {result.tour.length > 1 && <TourPanel tour={result.tour} />}
+      {/* trace: quiet full-width strip */}
+      <div className="mx-auto max-w-6xl px-5 md:px-8">
+        <Reveal className="mt-20">
+          <TracePanel trace={trace} />
+        </Reveal>
+      </div>
     </div>
   );
 }
 
 function TourPanel({ tour }: { tour: LineupResult["tour"] }) {
   return (
-    <section className="mt-8">
+    <section>
       <SectionLabel n="03" title="Tour Routing" hint="local partners per stop · the only lane that varies by city" />
-      <div className="mt-3 grid gap-x-6 gap-y-5 md:grid-cols-2 lg:grid-cols-3">
-        {tour.map((stop) => (
-          <div key={stop.city}>
-            <div className="flex items-baseline justify-between gap-2 border-b border-line pb-1">
-              <span className="font-display text-base font-bold uppercase tracking-wide text-bone">{stop.city}</span>
+      <div className="mt-8 flex gap-5 overflow-x-auto pb-4 [scrollbar-width:thin]">
+        {tour.map((stop, si) => (
+          <div key={stop.city} className="w-72 shrink-0 border-t-2 border-volt pt-3">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-ash">stop {String(si + 1).padStart(2, "0")}</span>
               <span className="font-mono text-[10px] text-ash">{stop.places.length} partners</span>
             </div>
-            <ol className="mt-1 divide-y divide-line">
+            <div className="mt-1 font-display text-2xl font-black uppercase leading-none tracking-tight text-bone">{stop.city}</div>
+            <ol className="mt-4 border-l border-line">
               {stop.places.map((p, i) => (
-                <PlaceRow key={p.id} p={p} delay={i * 0.02} />
+                <PlaceRow key={p.id} p={p} index={i + 1} delay={i * 0.02} />
               ))}
-              {!stop.places.length && <li className="py-3 font-mono text-sm text-ash">—</li>}
+              {!stop.places.length && <li className="py-3 pl-5 font-mono text-sm text-ash">·</li>}
             </ol>
           </div>
         ))}
@@ -521,14 +638,18 @@ function TourPanel({ tour }: { tour: LineupResult["tour"] }) {
 function BriefPanel({ brief, loading }: { brief: string | null; loading: boolean }) {
   if (!brief && !loading) return null;
   return (
-    <div className="anim-rise mt-5 border-l-2 border-volt bg-ink-2/60 py-3 pl-4 pr-4">
+    <div className="anim-rise mt-12 max-w-4xl">
       <div className="font-mono text-[10px] uppercase tracking-widest text-volt">
         Programmer’s Brief <span className="text-ash">· generated from the taste data</span>
       </div>
       {loading && !brief ? (
-        <p className="mt-2 font-mono text-sm text-ash cursor-blink">drafting the bill</p>
+        <p className="mt-4 font-mono text-base text-ash cursor-blink">drafting the bill</p>
       ) : (
-        <p className="mt-2 max-w-3xl text-[15px] leading-relaxed text-bone">{brief}</p>
+        <p className="mt-4 font-display text-base font-medium leading-[1.5] tracking-tight text-bone md:text-lg">
+          <span className="text-volt">“</span>
+          {brief}
+          <span className="text-volt">”</span>
+        </p>
       )}
     </div>
   );
@@ -536,10 +657,17 @@ function BriefPanel({ brief, loading }: { brief: string | null; loading: boolean
 
 function SectionLabel({ n, title, hint }: { n: string; title: string; hint: string }) {
   return (
-    <div className="flex items-baseline gap-3">
-      <span className="font-mono text-xs text-volt">{n}</span>
-      <h2 className="font-display text-xl font-bold uppercase tracking-wide text-bone">{title}</h2>
-      <span className="font-mono text-[10px] uppercase tracking-widest text-ash">{hint}</span>
+    <div className="section-head group relative">
+      <div className="flex items-end gap-4">
+        <span className="section-num shrink-0" aria-hidden>
+          {n}
+        </span>
+        <div className="flex-1 pb-1.5">
+          <h2 className="font-display text-2xl font-black uppercase leading-none tracking-tight text-bone md:text-3xl">{title}</h2>
+          <span className="mt-1.5 block font-mono text-[10px] uppercase tracking-widest text-ash">{hint}</span>
+        </div>
+      </div>
+      <div className="section-rule mt-3 h-px w-full bg-line" />
     </div>
   );
 }
@@ -560,11 +688,16 @@ function LineupRow({
   toggleBill: (id: string) => void;
 }) {
   return (
-    <li className="anim-rise grid grid-cols-[2rem_1fr_auto] items-center gap-3 py-3" style={{ animationDelay: `${delay}s` }}>
-      <span className="font-mono text-sm text-ash">{String(rank).padStart(2, "0")}</span>
+    <li
+      className="lineup-row anim-rise grid grid-cols-[2.5rem_1fr_auto] items-center gap-4 border-b border-line py-5 md:grid-cols-[4.5rem_1fr_minmax(13rem,20rem)_auto] md:gap-6"
+      style={{ animationDelay: `${delay}s` }}
+    >
+      <span className="rank-num text-4xl md:text-6xl">{String(rank).padStart(2, "0")}</span>
       <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="truncate font-display text-lg font-bold text-bone">{p.name}</span>
+        <div className="flex items-center gap-2.5">
+          <span className="truncate font-display text-2xl font-black uppercase leading-none tracking-tight text-bone md:text-4xl">
+            {p.name}
+          </span>
           {p.isHiddenGem && (
             <span className="shrink-0 rounded-sm bg-gold/15 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-gold">
               ◆ gem
@@ -572,23 +705,27 @@ function LineupRow({
           )}
         </div>
         {p.genres.length > 0 && (
-          <div className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-ash">{p.genres.join(" · ")}</div>
+          <div className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-ash">{p.genres.join(" · ")}</div>
         )}
-        <div className="mt-2 max-w-sm">
+        <div className="mt-3 max-w-sm md:hidden">
           <AttributionBar drivenBy={p.drivenBy} hueFor={hueFor} />
         </div>
       </div>
-      <div className="flex flex-col items-end gap-1.5">
+      <div className="hidden md:block">
+        <AttributionBar drivenBy={p.drivenBy} hueFor={hueFor} />
+      </div>
+      <div className="flex items-center justify-end gap-4">
         <div className="text-right">
-          <div className="font-mono text-base text-volt">{p.affinity.toFixed(2)}</div>
+          <div className="font-mono text-lg text-volt md:text-xl">{p.affinity.toFixed(2)}</div>
           <div className="font-mono text-[10px] text-ash">pop {p.popularity.toFixed(2)}</div>
         </div>
         <button
           onClick={() => toggleBill(p.id)}
+          data-cursor
           className={
             onBill
-              ? "border border-volt bg-volt/15 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-volt"
-              : "border border-line px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-ash transition-colors hover:border-volt hover:text-volt"
+              ? "shrink-0 border border-volt bg-volt/15 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-volt"
+              : "shrink-0 border border-line px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-ash transition-colors hover:border-volt hover:text-volt"
           }
         >
           {onBill ? "✓ on bill" : "+ add"}
@@ -673,7 +810,7 @@ function BillPoster({
           {clashes.length ? (
             <>
               <div className="font-mono text-[10px] uppercase tracking-widest text-ember">
-                ⚠ {clashes.length} clash{clashes.length > 1 ? "es" : ""} · acts pulling the same crowd — a wasted slot
+                ⚠ {clashes.length} clash{clashes.length > 1 ? "es" : ""} · acts pulling the same crowd · a wasted slot
               </div>
               <ul className="mt-2 space-y-1 font-mono text-[11px]">
                 {clashes.map((c, i) => (
@@ -685,13 +822,13 @@ function BillPoster({
               </ul>
             </>
           ) : (
-            !clashLoading && <div className="font-mono text-[11px] text-volt">✓ no clashes — every act covers a distinct slice of the crowd</div>
+            !clashLoading && <div className="font-mono text-[11px] text-volt">✓ no clashes · every act covers a distinct slice of the crowd</div>
           )}
         </div>
       )}
       {!count && (
         <p className="no-print mt-4 text-center font-mono text-sm text-ash">
-          Hit <span className="text-volt">+ add</span> on undercard picks to build your bill — then promote them with ▲▼.
+          Hit <span className="text-volt">+ add</span> on undercard picks to build your bill, then promote them with ▲▼.
         </p>
       )}
     </section>
@@ -726,15 +863,19 @@ function AttributionBar({ drivenBy, hueFor }: { drivenBy: { name: string; score:
 
 function SponsorCard({ s, delay, onPitch }: { s: Sponsor; delay: number; onPitch: (sponsor: string) => void }) {
   return (
-    <div className="anim-rise group flex items-center gap-2 border border-line bg-ink-2/60 px-3 py-2" style={{ animationDelay: `${delay}s` }}>
-      <span className="font-display text-sm font-bold text-bone">{s.name}</span>
-      <span className="font-mono text-[10px] text-volt">{s.affinity.toFixed(2)}</span>
+    <div
+      className="anim-rise group relative flex min-h-[8.5rem] flex-col justify-between border border-line bg-ink-2/60 p-4 transition-colors hover:border-volt"
+      style={{ animationDelay: `${delay}s` }}
+    >
+      <span className="font-mono text-[10px] text-ash transition-colors group-hover:text-volt">{s.affinity.toFixed(2)} affinity</span>
+      <span className="mt-6 font-display text-xl font-black uppercase leading-none tracking-tight text-bone md:text-2xl">{s.name}</span>
       <button
         onClick={() => onPitch(s.name)}
-        className="no-print ml-1 border border-line px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-ash opacity-0 transition hover:border-volt hover:text-volt group-hover:opacity-100"
+        data-cursor
+        className="no-print mt-3 self-start border-b border-transparent font-mono text-[10px] uppercase tracking-wider text-ash transition-colors hover:border-volt hover:text-volt md:opacity-0 md:transition-opacity md:group-hover:opacity-100"
         title={`Draft a sponsorship pitch to ${s.name}`}
       >
-        pitch →
+        draft pitch →
       </button>
     </div>
   );
@@ -774,22 +915,27 @@ function PitchModal({ sponsor, text, loading, onClose }: { sponsor: string; text
             </div>
           </>
         ) : (
-          <p className="mt-4 font-mono text-sm text-ash">Pitch unavailable — set GROQ_API_KEY to enable grounded drafting.</p>
+          <p className="mt-4 font-mono text-sm text-ash">Pitch unavailable. Set GROQ_API_KEY to enable grounded drafting.</p>
         )}
       </div>
     </div>
   );
 }
 
-function PlaceRow({ p, delay }: { p: Place; delay: number }) {
+function PlaceRow({ p, delay, index }: { p: Place; delay: number; index?: number }) {
   return (
-    <li className="anim-rise flex items-start justify-between gap-3 py-2.5" style={{ animationDelay: `${delay}s` }}>
-      <div className="min-w-0">
-        <div className="truncate font-display text-sm font-bold text-bone">{p.name}</div>
-        {p.address && <div className="truncate font-mono text-[10px] text-ash">{p.address}</div>}
-        {p.goodFor.length > 0 && (
-          <div className="mt-0.5 font-mono text-[9px] uppercase tracking-wider text-ash/70">{p.goodFor.join(" · ")}</div>
+    <li className="anim-rise flex items-start justify-between gap-3 py-3.5 pl-5" style={{ animationDelay: `${delay}s` }}>
+      <div className="flex min-w-0 gap-3">
+        {index !== undefined && (
+          <span className="shrink-0 font-mono text-[10px] text-ash/60">{String(index).padStart(2, "0")}</span>
         )}
+        <div className="min-w-0">
+          <div className="truncate font-display text-base font-bold text-bone">{p.name}</div>
+          {p.address && <div className="truncate font-mono text-[10px] text-ash">{p.address}</div>}
+          {p.goodFor.length > 0 && (
+            <div className="mt-0.5 font-mono text-[9px] uppercase tracking-wider text-ash/70">{p.goodFor.join(" · ")}</div>
+          )}
+        </div>
       </div>
       <span className="shrink-0 font-mono text-xs text-volt">{p.affinity.toFixed(2)}</span>
     </li>
@@ -798,20 +944,25 @@ function PlaceRow({ p, delay }: { p: Place; delay: number }) {
 
 function AudiencePanel({ audience }: { audience: NonNullable<LineupResult["audience"]> }) {
   return (
-    <div className="anim-rise border border-line bg-ink-2/60 p-4">
-      <SectionLabel n="◷" title="Audience" hint="who this bill pulls" />
-      <div className="mt-4 space-y-2">
-        {audience.age.map((a) => (
-          <DivergingBar key={a.bracket} label={AGE_LABEL[a.bracket] ?? a.bracket} score={a.score} />
-        ))}
-      </div>
-      <div className="mt-4 border-t border-line pt-3">
-        <DivergingBar label="male" score={audience.gender.male} />
-        <div className="mt-2">
-          <DivergingBar label="female" score={audience.gender.female} />
+    <div className="anim-rise">
+      <SectionLabel n="04" title="Audience" hint="who this bill pulls · over / under-index vs baseline" />
+      <div className="mx-auto mt-10 grid max-w-3xl gap-x-12 gap-y-10 md:grid-cols-2">
+        <div>
+          <div className="mb-4 font-mono text-[10px] uppercase tracking-widest text-ash">Age</div>
+          <div className="space-y-4">
+            {audience.age.map((a) => (
+              <DivergingBar key={a.bracket} label={AGE_LABEL[a.bracket] ?? a.bracket} score={a.score} />
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="mb-4 font-mono text-[10px] uppercase tracking-widest text-ash">Gender</div>
+          <div className="space-y-4">
+            <DivergingBar label="male" score={audience.gender.male} />
+            <DivergingBar label="female" score={audience.gender.female} />
+          </div>
         </div>
       </div>
-      <p className="mt-3 font-mono text-[9px] uppercase tracking-widest text-ash">over / under-index vs baseline</p>
     </div>
   );
 }
@@ -819,12 +970,12 @@ function AudiencePanel({ audience }: { audience: NonNullable<LineupResult["audie
 function DivergingBar({ label, score }: { label: string; score: number }) {
   const w = Math.min(Math.abs(score), 1) * 50;
   return (
-    <div className="flex items-center gap-2">
-      <span className="w-12 shrink-0 text-right font-mono text-[10px] text-ash">{label}</span>
-      <div className="relative h-2.5 flex-1 bg-ink">
+    <div className="flex items-center gap-3">
+      <span className="w-14 shrink-0 text-right font-mono text-xs text-ash">{label}</span>
+      <div className="relative h-4 flex-1 bg-ink">
         <div className="absolute inset-y-0 left-1/2 w-px bg-line" />
         <div
-          className="absolute inset-y-0"
+          className="bar-fill absolute inset-y-0"
           style={
             score >= 0
               ? { left: "50%", width: `${w}%`, background: "var(--color-volt)" }
@@ -832,7 +983,7 @@ function DivergingBar({ label, score }: { label: string; score: number }) {
           }
         />
       </div>
-      <span className="w-9 shrink-0 font-mono text-[10px]" style={{ color: score >= 0 ? "var(--color-volt)" : "var(--color-ash)" }}>
+      <span className="w-12 shrink-0 font-mono text-sm tabular-nums" style={{ color: score >= 0 ? "var(--color-volt)" : "var(--color-ash)" }}>
         {score >= 0 ? "+" : ""}
         {score.toFixed(2)}
       </span>
@@ -843,21 +994,21 @@ function DivergingBar({ label, score }: { label: string; score: number }) {
 function TracePanel({ trace }: { trace: LineupResult["trace"] }) {
   const totalMs = trace.reduce((s, t) => s + t.ms, 0);
   return (
-    <div className="no-print anim-rise border border-line bg-ink-2/60 p-4">
-      <SectionLabel n="⦿" title="Qloo trace" hint={`${totalMs}ms`} />
-      <ul className="mt-3 space-y-1.5 font-mono text-[11px]">
+    <div className="no-print anim-rise border-t border-line pt-6">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 font-mono text-[11px]">
+        <span className="uppercase tracking-widest text-ash/60">Qloo trace</span>
         {trace.map((t, i) => (
-          <li key={i} className="flex items-baseline justify-between gap-2">
-            <span className="flex items-baseline gap-2 text-ash">
-              <span className="text-volt">✓</span>
-              <span className="truncate">{t.label}</span>
-            </span>
-            <span className="shrink-0 text-ash/70">
+          <span key={i} className="flex items-center gap-2">
+            <span className="text-volt">✓</span>
+            <span className="text-bone">{t.label}</span>
+            <span className="text-ash/60">
               {t.count}× · {t.ms}ms
             </span>
-          </li>
+            {i < trace.length - 1 && <span className="text-line">/</span>}
+          </span>
         ))}
-      </ul>
+        <span className="ml-auto text-volt">{totalMs}ms total · live calls</span>
+      </div>
     </div>
   );
 }

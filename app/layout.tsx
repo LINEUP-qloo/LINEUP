@@ -1,19 +1,19 @@
 import type { Metadata } from "next";
-import { Anton, Archivo, Space_Mono } from "next/font/google";
+import { Archivo, Spline_Sans, Space_Mono } from "next/font/google";
 import "./globals.css";
 
-const display = Anton({
+const display = Archivo({
   variable: "--font-display",
   subsets: ["latin"],
-  weight: ["400"],
+  weight: ["700", "800", "900"],
 });
-const body = Archivo({ variable: "--font-body", subsets: ["latin"] });
+const body = Spline_Sans({ variable: "--font-body", subsets: ["latin"] });
 const mono = Space_Mono({ variable: "--font-mono", subsets: ["latin"], weight: ["400", "700"] });
 
 export const metadata: Metadata = {
-  title: "LINEUP — program your bill by taste",
+  title: "LINEUP · program your bill by taste",
   description:
-    "Give it your headliners and a city. Qloo's taste graph returns the support acts, sponsors, and local partners your actual audience over-indexes on — with the reason behind every pick.",
+    "Give it your headliners and a city. Qloo's taste graph returns the support acts, sponsors, and local partners your actual audience over-indexes on, with the reason behind every pick.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
