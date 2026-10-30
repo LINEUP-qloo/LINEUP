@@ -54,7 +54,7 @@ intelligence comes from the taste graph.
 ## Tech stack
 
 - **Next.js 16** (App Router) + **React 19** + **TypeScript**
-- **Tailwind CSS v4** — dark "music-industry" theme (Anton / Archivo / Space Mono)
+- **Tailwind CSS v4** — "Backstage" design system: tokens in `app/tokens.css`, Geist + Geist Mono, dark and light themes (see `DESIGN-DIRECTION.md`)
 - **Qloo Taste AI** hackathon API (`https://hackathon.api.qloo.com`) — the engine
 - **Groq** (`openai/gpt-oss-120b`) — grounded narration (optional)
 
@@ -102,8 +102,12 @@ The API key lives server-side only (in Next route handlers) and is never shipped
 
 ```
 app/
-  page.tsx            # renders the client app
-  lineup-app.tsx      # the UI (console, undercard, bill builder, panels, pitch modal)
+  page.tsx            # landing page (/)
+  app/page.tsx        # the tool (/app); presets open it as /app?h=…&city=…
+  lineup-app.tsx      # tool state + input form
+  results.tsx         # results: bill board, support acts, sponsors, partners, audience, pitch dialog
+  tokens.css          # design tokens (colour, type, shape, space, motion)
+  ui/                 # primitives (Button, Field/ChipInput, Card, Banner, Dialog, Skeleton…) + vendored React Bits
   api/lineup/route.ts # the engine endpoint
   api/brief/route.ts  # the Groq narration endpoint
   api/clash/route.ts  # pairwise taste-overlap for bill acts

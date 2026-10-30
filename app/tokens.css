@@ -1,0 +1,157 @@
+/* LINEUP design tokens — the single source for colour, type, shape, space and motion.
+   Direction: "Backstage" (see DESIGN-DIRECTION.md). Components never use raw colour values;
+   they use these variables directly or through the Tailwind theme mapped in globals.css. */
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* surfaces */
+  --bg: #0b0b0d;
+  --surface-1: #141417;
+  --surface-2: #1c1c20;
+  --line: rgb(255 255 255 / 0.08);
+  --line-strong: rgb(255 255 255 / 0.16);
+  --scrim: rgb(0 0 0 / 0.66);
+
+  /* text: 100 / 60 / 40 */
+  --text: #f3f2ee;
+  --text-2: #a3a29c;
+  --text-3: #6e6d69;
+
+  /* the one accent */
+  --accent: #d4ff3a;
+  --on-accent: #0b0b0d;
+  --accent-soft: rgb(212 255 58 / 0.12);
+
+  /* state — never decoration */
+  --ok: #3fd9a8;
+  --warn: #f2b33d;
+  --bad: #ff6b5e;
+
+  /* headliner series — data identity, never the accent */
+  --series-0: #6cc4ff;
+  --series-1: #ff8cc6;
+  --series-2: #b49cff;
+  --series-3: #f5a86b;
+  --series-4: #8fe3d0;
+
+  /* the split-flap board is a physical object: it stays dark in both themes */
+  --board-bg: #0e0e10;
+  --board-tile: #1d1d22;
+  --board-text: #f3f2ee;
+  --board-line: rgb(255 255 255 / 0.1);
+  --accent-on-board: #d4ff3a; /* the board is dark in every theme, so its accent never flips */
+
+  --shadow-pop: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 24px 64px -16px rgb(0 0 0 / 0.7);
+  --wash: rgb(212 255 58 / 0.05);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f7f6f2;
+  --surface-1: #ffffff;
+  --surface-2: #efeee8;
+  --line: rgb(22 22 26 / 0.1);
+  --line-strong: rgb(22 22 26 / 0.18);
+  --scrim: rgb(22 22 26 / 0.45);
+
+  --text: #16161a;
+  --text-2: #5c5b57;
+  --text-3: #8a8984;
+
+  --accent: #4d6b00;
+  --on-accent: #ffffff;
+  --accent-soft: rgb(77 107 0 / 0.1);
+
+  --ok: #0f7a57;
+  --warn: #9a5b00;
+  --bad: #c2342a;
+
+  --series-0: #1663b8;
+  --series-1: #b8236f;
+  --series-2: #6a45c9;
+  --series-3: #a6531a;
+  --series-4: #16786a;
+
+  --shadow-pop: 0 24px 64px -20px rgb(22 22 26 / 0.28);
+  --wash: rgb(77 107 0 / 0.05);
+}
+
+:root {
+  /* type */
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
+
+  --fs-display: clamp(2.75rem, 1.4rem + 5.2vw, 5.5rem);
+  --fs-h1: clamp(2rem, 1.55rem + 1.8vw, 3rem);
+  --fs-h2: clamp(1.5rem, 1.3rem + 0.8vw, 2rem);
+  --fs-h3: clamp(1.125rem, 1.08rem + 0.2vw, 1.25rem);
+  --fs-body: 1rem;
+  --fs-small: 0.875rem;
+  --fs-micro: 0.75rem;
+
+  /* shape */
+  --r-pill: 999px;
+  --r-card: 16px;
+  --r-input: 12px;
+  --r-chip: 8px;
+  --r-tile: 6px;
+
+  /* space — 8pt scale (4 is the only half-step) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-12: 48px;
+  --s-16: 64px;
+  --s-24: 96px;
+  --page-max: 1200px;
+  --gutter: 16px;
+
+  /* motion — one family */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.6, 0, 0.2, 1);
+  --dur-micro: 180ms;
+  --dur-ui: 500ms;
+  --dur-hero: 1200ms;
+}
+
+/* paper is always light, whatever the screen theme */
+@media print {
+  :root,
+  :root[data-theme="dark"],
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #ffffff;
+    --surface-1: #ffffff;
+    --surface-2: #f3f2ee;
+    --line: rgb(22 22 26 / 0.14);
+    --line-strong: rgb(22 22 26 / 0.24);
+    --text: #16161a;
+    --text-2: #4a4945;
+    --text-3: #6e6d69;
+    --accent: #4d6b00;
+    --ok: #0f7a57;
+    --warn: #9a5b00;
+    --bad: #c2342a;
+    --series-0: #1663b8;
+    --series-1: #b8236f;
+    --series-2: #6a45c9;
+    --series-3: #a6531a;
+    --series-4: #16786a;
+    --board-bg: #ffffff;
+    --board-tile: #f3f2ee;
+    --board-text: #16161a;
+    --board-line: rgb(22 22 26 / 0.14);
+  }
+}
+
+@media (min-width: 768px) {
+  :root {
+    --gutter: 24px;
+  }
+}
