@@ -2,7 +2,7 @@
 
 import SplitFlapText from "./ui/rb/split-flap-text";
 
-/** Landing hero: the board flips through real preset headliners once, then holds. */
+/** Landing hero: the board cycles through real preset headliners on a loop. */
 export function LandingBoard({ names }: { names: string[] }) {
   const words = names.map((n) => n.toUpperCase());
   const cols = Math.max(...words.map((w) => w.length));
@@ -13,7 +13,7 @@ export function LandingBoard({ names }: { names: string[] }) {
         <SplitFlapText
           words={words}
           padTo={cols}
-          loop={false}
+          loop={true}
           intro
           cycleDelay={1600}
           fontSize="1em"
